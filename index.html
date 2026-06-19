@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>RECT — Shikaku Puzzle</title>
+<meta name="description" content="RECT — a clean, mobile-first Shikaku logic puzzle. Divide the grid into rectangles, one number each, area equals the number.">
+<meta name="theme-color" content="#f5f4ef">
+<meta property="og:title" content="RECT — Shikaku Puzzle">
+<meta property="og:description" content="Divide the grid into rectangles. One number each. Area equals the number.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f5f4ef;
+    --surface:#ffffff;
+    --grid-line:#d6d3cc;
+    --grid-border:#28261f;
+    --text:#1a1814;
+    --text-muted:#6b6a66;
+    --solved-num:#2d6a4f;
+    --accent:#28261f;
+    --error:#c0563f;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Geist',system-ui,-apple-system,sans-serif;
+    font-weight:400;
+    -webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;
+    overscroll-behavior:none;
+  }
+  #app{
+    display:flex;flex-direction:column;
+    height:100dvh;
+    width:100%;
+    max-width:760px;
+    margin:0 auto;
+  }
+  header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px 10px;
+    border-bottom:1px solid var(--grid-line);
+    flex:0 0 auto;
+  }
+  .brand{font-weight:800;letter-spacing:.14em;font-size:18px;}
+  .hdr-right{display:flex;align-items:center;gap:12px;}
+  .iconbtn{
+    width:28px;height:28px;padding:0;border-radius:50%;
+    font-weight:700;font-size:14px;color:var(--text-muted);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .iconbtn:hover{color:var(--text);}
+  .meta{text-align:right;line-height:1.25;}
+  .meta .lvl{font-weight:600;font-size:14px;}
+  .meta .prog{font-size:12px;color:var(--text-muted);font-weight:500;}
+  #canvas-wrap{
+    flex:1 1 auto;
+    position:relative;
+    display:flex;align-items:center;justify-content:center;
+    min-height:0;
+    padding:10px;
+  }
+  canvas{display:block;touch-action:none;}
+  #gen{
+    position:absolute;inset:0;
+    display:none;align-items:center;justify-content:center;
+    background:var(--bg);
+    color:var(--text-muted);
+    font-weight:500;font-size:14px;letter-spacing:.04em;
+  }
+  #gen.on{display:flex;}
+  footer{
+    flex:0 0 auto;
+    display:flex;align-items:center;gap:8px;
+    padding:10px 14px;
+    padding-bottom:calc(10px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--grid-line);
+  }
+  .timer{
+    font-variant-numeric:tabular-nums;
+    font-weight:600;font-size:15px;
+    min-width:54px;
+  }
+  .spacer{flex:1 1 auto;}
+  button{
+    font-family:inherit;
+    font-weight:600;font-size:13px;
+    color:var(--text);
+    background:var(--surface);
+    border:1px solid var(--grid-line);
+    border-radius:4px;
+    padding:8px 12px;
+    cursor:pointer;
+    line-height:1;
+    transition:background .12s,border-color .12s,color .12s;
+  }
+  button:hover{border-color:#bdb9b0;}
+  button:active{background:#efeee9;}
+  button:disabled{opacity:.4;cursor:default;}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  button.primary:hover{background:#3a372d;}
+  button.toggle.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .modal-bg{
+    position:fixed;inset:0;
+    background:rgba(26,24,20,.32);
+    display:none;align-items:center;justify-content:center;
+    padding:24px;
+    opacity:0;transition:opacity .2s ease;
+    z-index:10;
+  }
+  .modal-bg.on{display:flex;}
+  .modal-bg.show{opacity:1;}
+  .modal{
+    background:var(--surface);
+    border:1px solid var(--grid-line);
+    border-radius:8px;
+    padding:28px 26px 22px;
+    width:100%;max-width:320px;
+    text-align:center;
+    transform:translateY(6px);
+    transition:transform .2s ease;
+  }
+  .modal-bg.show .modal{transform:translateY(0);}
+  .modal h2{margin:0 0 4px;font-weight:800;font-size:22px;letter-spacing:.02em;}
+  .modal .sub{color:var(--text-muted);font-size:13px;font-weight:500;margin-bottom:14px;}
+  .stars{font-size:30px;letter-spacing:.08em;margin:6px 0 16px;color:var(--accent);}
+  .stars .off{color:var(--grid-line);}
+  .stat-row{display:flex;justify-content:center;gap:22px;margin-bottom:20px;}
+  .stat{text-align:center;}
+  .stat .v{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums;}
+  .stat .l{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+  .modal-actions{display:flex;gap:10px;}
+  .modal-actions button{flex:1;padding:11px 0;font-size:14px;}
+  .sheet{text-align:left;max-width:340px;}
+  .sheet h2{margin:0 0 10px;font-weight:800;font-size:20px;}
+  .sheet .rule{font-size:14px;line-height:1.5;color:var(--text);margin:0 0 14px;}
+  .sheet ul{margin:0 0 18px;padding-left:18px;}
+  .sheet li{font-size:13px;line-height:1.6;color:var(--text-muted);margin-bottom:4px;}
+  .sheet li b{color:var(--text);font-weight:600;}
+  .sheet button{width:100%;padding:12px 0;font-size:14px;}
+  @media (max-height:520px){
+    header{padding:8px 14px 6px;}
+    footer{gap:6px;padding:7px 10px;padding-bottom:calc(7px + env(safe-area-inset-bottom));}
+    button{padding:7px 9px;font-size:12px;}
+    .timer{font-size:14px;min-width:46px;}
+  }
+  @media (max-width:380px){
+    button{padding:8px 9px;font-size:12px;}
+    footer{gap:6px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">RECT</div>
+    <div class="hdr-right">
+      <div class="meta">
+        <div class="lvl" id="lvl">Level 1 · 4×4</div>
+        <div class="prog" id="prog">0 / 0 ✓</div>
+      </div>
+      <button id="help" class="iconbtn" aria-label="How to play">?</button>
+    </div>
+  </header>
+  <div id="canvas-wrap">
+    <canvas id="board"></canvas>
+    <div id="gen">Generating…</div>
+  </div>
+  <footer>
+    <div class="timer" id="timer">00:00</div>
+    <div class="spacer"></div>
+    <button id="undo" title="Undo last rectangle">Undo</button>
+    <button id="hint" title="Reveal one rectangle">Hint · ★3</button>
+    <button id="erase" class="toggle" title="Erase mode">Erase</button>
+    <button id="next" class="primary" title="Next level">Next</button>
+  </footer>
+</div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2 id="m-title">Solved</h2>
+    <div class="sub" id="m-sub">Level 1 · 4×4</div>
+    <div class="stars" id="m-stars">★★★</div>
+    <div class="stat-row">
+      <div class="stat"><div class="v" id="m-time">00:00</div><div class="l">Time</div></div>
+      <div class="stat"><div class="v" id="m-hints">0</div><div class="l">Hints</div></div>
+    </div>
+    <div class="modal-actions">
+      <button id="m-next" class="primary">Next Level →</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="help-bg">
+  <div class="modal sheet">
+    <h2>How to play</h2>
+    <p class="rule">Divide the whole grid into rectangles. Each rectangle must contain <b>exactly one number</b>, and that number equals the rectangle's <b>area</b> (width × height).</p>
+    <ul>
+      <li><b>Desktop:</b> click &amp; drag to draw a rectangle; click a single cell for a 1×1. Right-click to remove.</li>
+      <li><b>Touch:</b> tap a start cell, then tap the opposite corner — tap the same cell for a 1×1.</li>
+      <li><b>Remove:</b> long-press a rectangle, right-click it, or use <b>Erase</b> mode. Drawing over an existing box replaces it.</li>
+      <li>A correct box colours its number; a <b>red dashed outline</b> means the box is the wrong size for its number.</li>
+    </ul>
+    <button id="help-close" class="primary">Got it</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  // ---------- palette ----------
+  const PALETTE=[
+    {fill:'rgba(174,198,207,0.28)',border:'#5b8a9a'},
+    {fill:'rgba(181,201,168,0.28)',border:'#5f8a52'},
+    {fill:'rgba(230,201,126,0.28)',border:'#b5881a'},
+    {fill:'rgba(232,180,160,0.28)',border:'#c06a52'},
+    {fill:'rgba(195,184,224,0.28)',border:'#7b68b0'},
+    {fill:'rgba(158,207,203,0.28)',border:'#3d9490'},
+    {fill:'rgba(212,166,138,0.28)',border:'#a06040'},
+    {fill:'rgba(223,208,154,0.28)',border:'#a08830'},
+    {fill:'rgba(176,188,200,0.28)',border:'#607080'},
+    {fill:'rgba(224,184,200,0.28)',border:'#b06080'}
+  ];
+  const css=getComputedStyle(document.documentElement);
+  const C={
+    bg:css.getPropertyValue('--bg').trim(),
+    surface:css.getPropertyValue('--surface').trim(),
+    line:css.getPropertyValue('--grid-line').trim(),
+    border:css.getPropertyValue('--grid-border').trim(),
+    text:css.getPropertyValue('--text').trim(),
+    muted:css.getPropertyValue('--text-muted').trim(),
+    solved:css.getPropertyValue('--solved-num').trim(),
+    accent:css.getPropertyValue('--accent').trim()
+  };
+
+  // ---------- seeded RNG ----------
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  const lerp=(a,b,t)=>a+(b-a)*t;
+
+  // ---------- level → grid size + difficulty ----------
+  const BANDS=[
+    [1,3,4],[4,8,5],[9,15,6],[16,24,7],[25,35,8],[36,48,9],
+    [49,63,10],[64,80,11],[81,99,12],[100,120,13],[121,143,14],[144,184,15]
+  ];
+  function bandFor(level){
+    for(const b of BANDS){ if(level>=b[0]&&level<=b[1]) return b; }
+    return [144,184,15]; // 15x15 plateau
+  }
+  function gridSizeForLevel(level){ return bandFor(level)[2]; }
+  function difficultyT(level){
+    const b=bandFor(level);
+    if(level>b[1]) return 1; // beyond plateau end => max
+    const span=b[1]-b[0];
+    return span<=0?0:Math.min(1,(level-b[0])/span);
+  }
+
+  // ---------- guillotine partition ----------
+  function partition(x,y,w,h,rng,maxLeaf,out){
+    const area=w*h;
+    const canV=w>=2, canH=h>=2;
+    let stop=false;
+    if(!canV&&!canH){ stop=true; }
+    else if(area<=maxLeaf){
+      stop = area<=2 ? rng()<0.85 : rng()<0.65;
+    }
+    if(stop){ out.push({x,y,w,h}); return; }
+    let vertical;
+    if(canV&&canH) vertical=rng()<0.5;
+    else vertical=canV;
+    if(vertical){
+      const cut=1+Math.floor(rng()*(w-1));
+      partition(x,y,cut,h,rng,maxLeaf,out);
+      partition(x+cut,y,w-cut,h,rng,maxLeaf,out);
+    } else {
+      const cut=1+Math.floor(rng()*(h-1));
+      partition(x,y,w,cut,rng,maxLeaf,out);
+      partition(x,y+cut,w,h-cut,rng,maxLeaf,out);
+    }
+  }
+
+  // ---------- solver: count solutions (MRV / forced-move backtracking) ----------
+  function solveCount(N,clues,maxCount,deadline){
+    const clueAt=new Int16Array(N*N).fill(-1);
+    clues.forEach((c,i)=>{ clueAt[c.y*N+c.x]=i; });
+    function onlyClue(x,y,w,h,ci){
+      for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++){
+        const v=clueAt[yy*N+xx]; if(v!==-1&&v!==ci) return false;
+      }
+      return true;
+    }
+    // candidate rectangles per clue
+    const cellCands=Array.from({length:N*N},()=>[]);
+    let ok=true;
+    for(let ci=0;ci<clues.length;ci++){
+      const c=clues[ci], v=c.value; let any=false;
+      for(let w=1;w<=N;w++){
+        if(v%w!==0) continue; const h=v/w; if(h>N) continue;
+        const x0=Math.max(0,c.x-w+1), x1=Math.min(c.x,N-w);
+        const y0=Math.max(0,c.y-h+1), y1=Math.min(c.y,N-h);
+        for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){
+          if(!onlyClue(x,y,w,h,ci)) continue;
+          any=true;
+          const r={x,y,w,h,ci};
+          for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++) cellCands[yy*N+xx].push(r);
+        }
+      }
+      if(!any){ ok=false; break; }
+    }
+    if(!ok) return {count:0,timedOut:false};
+
+    const cover=new Uint8Array(N*N);
+    const used=new Uint8Array(clues.length);
+    let count=0, timedOut=false, checks=0;
+    function fits(r){
+      for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++) if(cover[yy*N+xx]) return false;
+      return true;
+    }
+    function setCover(r,v){ for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++) cover[yy*N+xx]=v; }
+    function rec(){
+      if(count>=maxCount||timedOut) return;
+      if(((checks++)&1023)===0 && Date.now()>deadline){ timedOut=true; return; }
+      // pick uncovered cell with fewest placeable candidates
+      let bestCell=-1, bestList=null, bestN=Infinity;
+      for(let i=0;i<N*N;i++){
+        if(cover[i]) continue;
+        const cc=cellCands[i]; const opts=[];
+        for(let k=0;k<cc.length;k++){ const r=cc[k]; if(!used[r.ci]&&fits(r)) opts.push(r); }
+        if(opts.length<bestN){ bestN=opts.length; bestCell=i; bestList=opts; if(bestN<=1) break; }
+      }
+      if(bestCell===-1){ count++; return; } // fully covered
+      if(bestN===0) return;
+      for(let k=0;k<bestList.length;k++){
+        const r=bestList[k];
+        used[r.ci]=1; setCover(r,1);
+        rec();
+        used[r.ci]=0; setCover(r,0);
+        if(count>=maxCount||timedOut) return;
+      }
+    }
+    rec();
+    return {count,timedOut};
+  }
+
+  // ---------- puzzle generation ----------
+  function generatePuzzle(level){
+    const N=gridSizeForLevel(level);
+    const t=difficultyT(level);
+    const maxLeaf=Math.max(2,Math.round(lerp(N*1.6,2.5,t)));
+    let fallback=null, last=null;
+    for(let attempt=0;attempt<25;attempt++){
+      const seed=level*1000+attempt;
+      const rng=mulberry32(seed);
+      const leaves=[]; partition(0,0,N,N,rng,maxLeaf,leaves);
+      const clues=leaves.map(L=>({x:L.x+Math.floor(rng()*L.w),y:L.y+Math.floor(rng()*L.h),value:L.w*L.h}));
+      const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
+      const puzzle={N,clues,solution,level};
+      last=puzzle;
+      const res=solveCount(N,clues,4,Date.now()+800);
+      if(res.count>=1){
+        if(res.count<=3) return puzzle;       // ideal: few solutions
+        if(!fallback) fallback=puzzle;         // solvable but ambiguous
+      }
+    }
+    return fallback||last;
+  }
+
+  // ---------- game state ----------
+  const state={
+    level:1, N:4, clues:[], solution:[], clueAt:null,
+    rects:[], coverOwner:null, coveredCount:0, rectId:0, colorCounter:0,
+    pending:null,         // {x,y} mobile tap-start
+    down:null,            // {cell,time,anchor,moved} active pointer
+    preview:null,         // {x,y,w,h} live preview
+    eraseMode:false,
+    timeStart:0, elapsed:0, timerRunning:false,
+    hintsUsed:0, maxHints:3,
+    solved:false, solveAnim:0,
+    pulses:{}, validFlags:[], pulseRAF:0
+  };
+
+  const canvas=document.getElementById('board');
+  const ctx=canvas.getContext('2d');
+  const wrap=document.getElementById('canvas-wrap');
+  const elGen=document.getElementById('gen');
+  const elLvl=document.getElementById('lvl');
+  const elProg=document.getElementById('prog');
+  const elTimer=document.getElementById('timer');
+  const elUndo=document.getElementById('undo');
+  const elHint=document.getElementById('hint');
+  const elErase=document.getElementById('erase');
+  const elNext=document.getElementById('next');
+  const modalBg=document.getElementById('modal-bg');
+  const helpBg=document.getElementById('help-bg');
+  const elHelp=document.getElementById('help');
+
+  let cellSize=24, originX=0, originY=0, dpr=1, cssW=0, cssH=0;
+  let helpOpen=false;
+  let pendingTimer=0, advanceTimer=0;
+
+  function buzz(pattern){ try{ if(navigator.vibrate) navigator.vibrate(pattern); }catch(_){} }
+
+  // ---------- persistence ----------
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+  function storeLevel(level){
+    try{ history.replaceState(null,'','#level='+level); }catch(e){}
+    lsSet('rect.level',String(level));
+  }
+  function startLevel(){
+    const m=/#level=(\d+)/.exec(location.hash||'');
+    if(m){ const v=parseInt(m[1],10); if(v>=1) return v; }
+    const ls=lsGet('rect.level'); if(ls){ const v=parseInt(ls,10); if(v>=1) return v; }
+    return 1;
+  }
+
+  // ---------- rect helpers ----------
+  function rectFromCells(a,b){
+    const x=Math.min(a.x,b.x), y=Math.min(a.y,b.y);
+    return {x,y,w:Math.abs(a.x-b.x)+1,h:Math.abs(a.y-b.y)+1};
+  }
+  function overlaps(r){
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++) if(state.coverOwner[yy*state.N+xx]) return true;
+    return false;
+  }
+  function addRect(r,hinted){
+    if(overlaps(r)) return false;
+    const id=++state.rectId;
+    const colorIndex=(state.colorCounter++)%PALETTE.length;
+    const rect={id,x:r.x,y:r.y,w:r.w,h:r.h,colorIndex,hinted:!!hinted};
+    state.rects.push(rect);
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++) state.coverOwner[yy*state.N+xx]=id;
+    state.coveredCount+=r.w*r.h;
+    return true;
+  }
+  function removeRectById(id){
+    const idx=state.rects.findIndex(rr=>rr.id===id);
+    if(idx<0) return;
+    const r=state.rects[idx];
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++) state.coverOwner[yy*state.N+xx]=0;
+    state.coveredCount-=r.w*r.h;
+    state.rects.splice(idx,1);
+  }
+  function rectAtCell(c){ const id=state.coverOwner[c.y*state.N+c.x]; return id?state.rects.find(rr=>rr.id===id):null; }
+  function rectValid(r){
+    let cnt=0;
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++){ const ci=state.clueAt[yy*state.N+xx]; if(ci!==-1) cnt++; }
+    if(cnt!==1) return false;
+    // find that clue's value
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++){ const ci=state.clueAt[yy*state.N+xx]; if(ci!==-1) return state.clues[ci].value===r.w*r.h; }
+    return false;
+  }
+  function validCount(){ let n=0; for(const r of state.rects) if(rectValid(r)) n++; return n; }
+  // 'valid' = one number, area matches | 'wrong' = wrong size or 2+ numbers | 'partial' = no number yet
+  function rectState(r){
+    let cnt=0, val=0;
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++){
+      const ci=state.clueAt[yy*state.N+xx]; if(ci!==-1){ cnt++; val=state.clues[ci].value; }
+    }
+    if(cnt===0) return 'partial';
+    if(cnt>=2) return 'wrong';
+    return val===r.w*r.h ? 'valid' : 'wrong';
+  }
+
+  // ---------- timer ----------
+  function startTimer(){ if(state.timerRunning||state.solved) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(); }
+  function stopTimer(){ state.timerRunning=false; }
+  function fmt(ms){ const s=Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+  function tick(){
+    if(!state.timerRunning) return;
+    state.elapsed=Date.now()-state.timeStart;
+    elTimer.textContent=fmt(state.elapsed);
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- layout / sizing ----------
+  function resize(){
+    const r=wrap.getBoundingClientRect();
+    const availW=r.width-20, availH=r.height-20;
+    cellSize=Math.max(12,Math.min(72,Math.floor(Math.min(availW,availH)/state.N)));
+    const gridPx=cellSize*state.N;
+    cssW=gridPx; cssH=gridPx;
+    originX=0; originY=0;
+    dpr=Math.max(1,window.devicePixelRatio||1);
+    canvas.style.width=cssW+'px';
+    canvas.style.height=cssH+'px';
+    canvas.width=Math.round(cssW*dpr);
+    canvas.height=Math.round(cssH*dpr);
+    draw();
+  }
+
+  // ---------- drawing ----------
+  function draw(){
+    if(!state.clueAt) return;
+    const N=state.N, cs=cellSize;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cssW,cssH);
+    // grid surface
+    ctx.fillStyle=C.surface;
+    ctx.fillRect(0,0,N*cs,N*cs);
+    // player rect fills
+    const animBoost=state.solveAnim*0.27;
+    for(const r of state.rects){
+      const p=PALETTE[r.colorIndex];
+      ctx.fillStyle=p.fill;
+      ctx.fillRect(r.x*cs,r.y*cs,r.w*cs,r.h*cs);
+      if(animBoost>0){ ctx.globalAlpha=animBoost/0.55; ctx.fillStyle=p.border; ctx.fillRect(r.x*cs,r.y*cs,r.w*cs,r.h*cs); ctx.globalAlpha=1; }
+    }
+    // grid lines
+    ctx.strokeStyle=C.line; ctx.lineWidth=1;
+    ctx.beginPath();
+    for(let i=1;i<N;i++){ const o=Math.round(i*cs)+0.5; ctx.moveTo(o,0); ctx.lineTo(o,N*cs); ctx.moveTo(0,o); ctx.lineTo(N*cs,o); }
+    ctx.stroke();
+    // player rect borders (state-aware)
+    for(const r of state.rects){
+      const p=PALETTE[r.colorIndex];
+      const st=rectState(r);
+      if(st==='wrong'){ // strong error highlight: red tint + thick dashed border
+        ctx.fillStyle='rgba(192,86,63,0.18)';
+        ctx.fillRect(r.x*cs,r.y*cs,r.w*cs,r.h*cs);
+        ctx.setLineDash([6,4]);
+      } else { ctx.setLineDash([]); }
+      ctx.strokeStyle = st==='wrong' ? C.error : p.border;
+      ctx.lineWidth = st==='wrong' ? 3 : (st==='valid' ? 2.5 : 2);
+      ctx.strokeRect(r.x*cs+1,r.y*cs+1,r.w*cs-2,r.h*cs-2);
+      ctx.setLineDash([]);
+      if(r.hinted){ // small corner marker so hinted boxes are distinguishable
+        const m=Math.max(7,cs*0.20);
+        ctx.fillStyle=p.border; ctx.globalAlpha=0.55;
+        ctx.beginPath();
+        ctx.moveTo(r.x*cs+2,r.y*cs+2); ctx.lineTo(r.x*cs+2+m,r.y*cs+2); ctx.lineTo(r.x*cs+2,r.y*cs+2+m); ctx.closePath();
+        ctx.fill(); ctx.globalAlpha=1;
+      }
+    }
+    // preview rect (dashed)
+    if(state.preview){
+      const r=state.preview;
+      const nextColor=PALETTE[state.colorCounter%PALETTE.length];
+      ctx.save();
+      ctx.fillStyle=nextColor.border; ctx.globalAlpha=0.12;
+      ctx.fillRect(r.x*cs,r.y*cs,r.w*cs,r.h*cs);
+      ctx.globalAlpha=1;
+      ctx.strokeStyle=nextColor.border; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+      ctx.strokeRect(r.x*cs+1,r.y*cs+1,r.w*cs-2,r.h*cs-2);
+      ctx.setLineDash([]);
+      // dimension label: width × height (the sides, not the area)
+      const label=r.w+'×'+r.h;
+      ctx.font='700 '+Math.max(11,Math.round(cs*0.40))+"px 'Geist',sans-serif";
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      const tw=ctx.measureText(label).width;
+      const px=(r.x+r.w/2)*cs, py=(r.y+r.h/2)*cs;
+      ctx.fillStyle='rgba(255,255,255,0.88)';
+      ctx.fillRect(px-tw/2-6,py-10,tw+12,20);
+      ctx.fillStyle=C.text;
+      ctx.fillText(label,px,py);
+      ctx.restore();
+    }
+    // pending mobile start indicator
+    if(state.pending){
+      const cx=(state.pending.x+0.5)*cs, cy=(state.pending.y+0.5)*cs;
+      ctx.save();
+      ctx.strokeStyle=C.accent; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(cx,cy,cs*0.30,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle=C.accent;
+      ctx.beginPath(); ctx.arc(cx,cy,cs*0.16,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    // outer border
+    ctx.strokeStyle=C.border; ctx.lineWidth=2;
+    ctx.strokeRect(1,1,N*cs-2,N*cs-2);
+    // numbers
+    const fs=Math.max(11,Math.round(cs*0.55));
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const now=performance.now();
+    for(let i=0;i<state.clues.length;i++){
+      const c=state.clues[i];
+      const owner=rectAtCell(c);
+      // number color: each correct box uses its own rectangle color; wrong boxes go red
+      let col=C.text;
+      if(owner){
+        const st=rectState(owner);
+        if(st==='valid') col=PALETTE[owner.colorIndex].border;
+        else if(st==='wrong') col=C.error;
+      }
+      // confirmation pulse when a box just became correct
+      let scale=1;
+      const ps=state.pulses[i];
+      if(ps!==undefined){
+        const t=(now-ps)/320;
+        if(t>=1){ state.pulses[i]=undefined; }
+        else scale=1+0.28*Math.sin(t*Math.PI);
+      }
+      ctx.font='700 '+Math.round(fs*scale)+"px 'Geist',sans-serif";
+      ctx.fillStyle=col;
+      ctx.fillText(String(c.value),(c.x+0.5)*cs,(c.y+0.5)*cs+1);
+    }
+  }
+
+  // ---------- UI sync ----------
+  function syncUI(){
+    elLvl.textContent='Level '+state.level+' · '+state.N+'×'+state.N;
+    elProg.textContent=validCount()+' / '+state.clues.length+' ✓';
+    const left=state.maxHints-state.hintsUsed;
+    elHint.textContent='Hint · ★'+left;
+    elHint.disabled=left<=0||state.solved;
+    elUndo.disabled=state.rects.length===0||state.solved;
+    elErase.disabled=state.solved;
+    elNext.disabled=!state.solved; // can't advance until the grid is finished
+    elErase.classList.toggle('on',state.eraseMode);
+  }
+
+  // ---------- completion ----------
+  function checkSolved(){
+    if(state.solved) return;
+    if(state.coveredCount!==state.N*state.N) return;
+    if(state.rects.length!==state.clues.length) return;
+    for(const r of state.rects) if(!rectValid(r)) return;
+    onSolve();
+  }
+  function onSolve(){
+    state.solved=true;
+    stopTimer();
+    clearPending(); state.preview=null;
+    buzz([0,45,55,45]);
+    syncUI();
+    const start=performance.now();
+    (function anim(){
+      const p=Math.min(1,(performance.now()-start)/220);
+      state.solveAnim=p; draw();
+      if(p<1) requestAnimationFrame(anim);
+      else setTimeout(showModal,800); // hold on the finished grid before the summary
+    })();
+  }
+  function advance(){ clearAdvance(); hideModal(); loadLevel(state.level+1); }
+  function clearAdvance(){ if(advanceTimer){ clearTimeout(advanceTimer); advanceTimer=0; } }
+  function showModal(){
+    const stars=state.hintsUsed===0?3:(state.hintsUsed===1?2:1);
+    document.getElementById('m-sub').textContent='Level '+state.level+' · '+state.N+'×'+state.N;
+    document.getElementById('m-time').textContent=fmt(state.elapsed);
+    document.getElementById('m-hints').textContent=String(state.hintsUsed);
+    document.getElementById('m-stars').innerHTML=
+      '★★★'.split('').map((s,i)=>i<stars?'★':'<span class="off">★</span>').join('');
+    modalBg.classList.add('on');
+    requestAnimationFrame(()=>modalBg.classList.add('show'));
+    advanceTimer=setTimeout(advance,2400); // auto-advance to the next level
+  }
+  function hideModal(){ modalBg.classList.remove('show'); setTimeout(()=>modalBg.classList.remove('on'),200); }
+
+  // ---------- hint ----------
+  function useHint(){
+    if(state.solved||state.hintsUsed>=state.maxHints) return;
+    // pick a solution rect that's missing AND doesn't require destroying a correct box
+    let target=null, conflicts=null;
+    for(const s of state.solution){
+      const exists=state.rects.some(r=>r.x===s.x&&r.y===s.y&&r.w===s.w&&r.h===s.h);
+      if(exists) continue;
+      const ids=new Set(); let blocked=false;
+      for(let yy=s.y;yy<s.y+s.h;yy++) for(let xx=s.x;xx<s.x+s.w;xx++){
+        const id=state.coverOwner[yy*state.N+xx];
+        if(!id) continue;
+        const rr=state.rects.find(p=>p.id===id);
+        if(rr&&rectValid(rr)){ blocked=true; break; } // never erase correct work
+        ids.add(id);
+      }
+      if(blocked) continue;
+      target=s; conflicts=ids; break;
+    }
+    if(!target) return; // nothing safe to reveal
+    conflicts.forEach(id=>removeRectById(id));
+    addRect({x:target.x,y:target.y,w:target.w,h:target.h},true);
+    state.hintsUsed++;
+    if(!state.timerRunning) startTimer();
+    buzz(10);
+    afterChange();
+  }
+
+  // ---------- pointer interaction ----------
+  function cellFromEvent(e){
+    const rect=canvas.getBoundingClientRect();
+    const x=Math.floor((e.clientX-rect.left)/cellSize);
+    const y=Math.floor((e.clientY-rect.top)/cellSize);
+    if(x<0||y<0||x>=state.N||y>=state.N) return null;
+    return {x,y};
+  }
+  function tryPlace(a,b){
+    const r=rectFromCells(a,b);
+    // dragging over existing rectangles erases them, then places the new one
+    const ids=new Set();
+    for(let yy=r.y;yy<r.y+r.h;yy++) for(let xx=r.x;xx<r.x+r.w;xx++){
+      const id=state.coverOwner[yy*state.N+xx]; if(id) ids.add(id);
+    }
+    ids.forEach(id=>removeRectById(id));
+    addRect(r);
+    if(!state.timerRunning) startTimer();
+    buzz(6);
+    return true;
+  }
+  // detect boxes that just became correct → pulse + haptic
+  function detectNewlyValid(){
+    let any=false;
+    for(let i=0;i<state.clues.length;i++){
+      const owner=rectAtCell(state.clues[i]);
+      const v=!!(owner&&rectValid(owner));
+      if(v&&!state.validFlags[i]){ state.pulses[i]=performance.now(); any=true; }
+      state.validFlags[i]=v;
+    }
+    if(any){ buzz(14); runPulses(); }
+  }
+  function runPulses(){
+    if(state.pulseRAF) return;
+    const step=()=>{
+      let active=false;
+      for(const k in state.pulses){ if(state.pulses[k]!==undefined) active=true; }
+      draw();
+      if(active&&!state.solved){ state.pulseRAF=requestAnimationFrame(step); }
+      else { state.pulseRAF=0; }
+    };
+    state.pulseRAF=requestAnimationFrame(step);
+  }
+
+  function setPending(c){
+    clearPending();
+    state.pending={x:c.x,y:c.y};
+    pendingTimer=setTimeout(()=>{ pendingTimer=0; state.pending=null; draw(); },1000); // auto-clear after 1s
+  }
+  function clearPending(){
+    if(pendingTimer){ clearTimeout(pendingTimer); pendingTimer=0; }
+    state.pending=null;
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    if(state.solved) return;
+    const c=cellFromEvent(e); if(!c) return;
+    e.preventDefault();
+    try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
+    const touch=e.pointerType==='touch'||e.pointerType==='pen';
+    const anchor=(touch&&state.pending)?state.pending:c;
+    state.down={cell:c,time:Date.now(),anchor,moved:false,touch};
+    if(!state.timerRunning) startTimer();
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!state.down||state.solved) return;
+    const c=cellFromEvent(e); if(!c) return;
+    if(c.x!==state.down.cell.x||c.y!==state.down.cell.y){ state.down.moved=true; state.down.cell=c; }
+    state.preview=rectFromCells(state.down.anchor,c);
+    draw();
+  });
+  function endPointer(e){
+    if(!state.down) return;
+    const d=state.down; state.down=null;
+    const c=cellFromEvent(e)||d.cell;
+    state.preview=null;
+    const dur=Date.now()-d.time;
+
+    if(state.eraseMode && !d.moved){
+      const r=rectAtCell(c); if(r){ removeRectById(r.id); clearPending(); afterChange(); return; }
+    }
+    // long-press removal (touch only — mouse uses right-click)
+    if(d.touch && !d.moved && dur>=500){
+      const r=rectAtCell(c); if(r){ removeRectById(r.id); clearPending(); afterChange(); return; }
+    }
+    if(d.moved){ tryPlace(d.anchor,c); clearPending(); afterChange(); return; } // drag = draw (mouse + touch)
+    if(d.touch){
+      if(state.pending){
+        tryPlace(state.pending,c); clearPending(); afterChange(); return; // second tap places (same cell = single 1×1 square)
+      }
+      setPending(c); afterChange(); return;                              // first tap = set start corner (auto-clears in 1s)
+    }
+    // bare mouse click on an empty cell = place a single 1×1 square
+    if(!state.coverOwner[c.y*state.N+c.x]){ tryPlace(c,c); }
+    afterChange();
+  }
+  canvas.addEventListener('pointerup',endPointer);
+  canvas.addEventListener('pointercancel',()=>{ state.down=null; state.preview=null; draw(); });
+  canvas.addEventListener('contextmenu',e=>{
+    e.preventDefault();
+    if(state.solved) return;
+    const c=cellFromEvent(e); if(!c) return;
+    const r=rectAtCell(c); if(r){ removeRectById(r.id); clearPending(); afterChange(); }
+  });
+
+  function afterChange(){ detectNewlyValid(); syncUI(); draw(); checkSolved(); }
+
+  // ---------- buttons ----------
+  elUndo.addEventListener('click',()=>{
+    if(state.solved||!state.rects.length) return;
+    const last=state.rects[state.rects.length-1];
+    removeRectById(last.id);
+    afterChange();
+  });
+  elHint.addEventListener('click',useHint);
+  elErase.addEventListener('click',()=>{ if(state.solved) return; state.eraseMode=!state.eraseMode; clearPending(); afterChange(); });
+  elNext.addEventListener('click',()=>{ if(state.solved) advance(); }); // only works once finished
+  document.getElementById('m-next').addEventListener('click',advance);
+
+  // help / onboarding
+  function openHelp(){ helpOpen=true; helpBg.classList.add('on'); requestAnimationFrame(()=>helpBg.classList.add('show')); }
+  function closeHelp(){ helpOpen=false; helpBg.classList.remove('show'); setTimeout(()=>helpBg.classList.remove('on'),200); lsSet('rect.seen','1'); }
+  elHelp.addEventListener('click',openHelp);
+  document.getElementById('help-close').addEventListener('click',closeHelp);
+  helpBg.addEventListener('click',e=>{ if(e.target===helpBg) closeHelp(); });
+
+  // keyboard
+  window.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){
+      if(helpOpen){ closeHelp(); return; }
+      if(state.pending){ state.pending=null; afterChange(); }
+      return;
+    }
+    if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){ e.preventDefault(); if(!elUndo.disabled) elUndo.click(); }
+  });
+
+  window.addEventListener('hashchange',()=>{
+    const m=/#level=(\d+)/.exec(location.hash||'');
+    const v=m?parseInt(m[1],10):0;
+    if(v>state.level){ loadLevel(v); }                    // allow skipping forward via URL
+    else if(v!==state.level){ storeLevel(state.level); }  // block Back/lower levels — restore hash
+  });
+
+  // value-1 clues have exactly one possible rectangle (themselves) — fill them in for free
+  function preplaceOnes(){
+    const placed=[];
+    for(let i=0;i<state.clues.length;i++){
+      const c=state.clues[i];
+      if(c.value===1 && addRect({x:c.x,y:c.y,w:1,h:1})){ placed.push(state.rectId); state.validFlags[i]=true; }
+    }
+    if(state.coveredCount===state.N*state.N){ // degenerate all-1s grid: revert so it isn't auto-solved on load
+      placed.forEach(id=>removeRectById(id));
+      state.validFlags.fill(false);
+    }
+  }
+
+  // ---------- load level ----------
+  function loadLevel(level){
+    state.level=level;
+    state.solved=false; state.solveAnim=0;
+    state.eraseMode=false; state.preview=null; state.down=null;
+    state.hintsUsed=0; state.elapsed=0; state.timerRunning=false;
+    state.pulses={}; state.validFlags=[];
+    clearPending(); clearAdvance();
+    if(state.pulseRAF){ cancelAnimationFrame(state.pulseRAF); state.pulseRAF=0; }
+    elTimer.textContent='00:00';
+    storeLevel(level);
+    elGen.classList.add('on');
+    const gs=gridSizeForLevel(level);
+    elLvl.textContent='Level '+level+' · '+gs+'×'+gs;
+    // defer so the "Generating…" overlay paints before the synchronous solve
+    setTimeout(()=>{
+      let puzzle;
+      try{ puzzle=generatePuzzle(level); }catch(err){ puzzle=null; }
+      if(!puzzle||!puzzle.clues||!puzzle.clues.length){
+        // guaranteed-solvable fallback so a bad seed can never white-screen
+        puzzle={N:gs,clues:[{x:0,y:0,value:gs*gs}],solution:[{x:0,y:0,w:gs,h:gs,clue:0}],level};
+      }
+      state.N=puzzle.N;
+      state.clues=puzzle.clues;
+      state.solution=puzzle.solution;
+      state.clueAt=new Int16Array(state.N*state.N).fill(-1);
+      state.clues.forEach((c,i)=>{ state.clueAt[c.y*state.N+c.x]=i; });
+      state.validFlags=new Array(state.clues.length).fill(false);
+      state.rects=[]; state.coverOwner=new Int32Array(state.N*state.N);
+      state.coveredCount=0; state.rectId=0; state.colorCounter=0;
+      preplaceOnes();
+      elGen.classList.remove('on');
+      resize();
+      syncUI();
+    },24);
+  }
+
+  // ---------- boot ----------
+  const ro=new ResizeObserver(()=>{ if(state.clueAt) resize(); });
+  ro.observe(wrap);
+  window.addEventListener('orientationchange',()=>setTimeout(resize,200));
+  if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(()=>draw()); }
+  loadLevel(startLevel());
+  if(!lsGet('rect.seen')) setTimeout(openHelp,260); // first-run onboarding
+})();
+</script>
+</body>
+</html>
