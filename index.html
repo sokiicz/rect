@@ -13,10 +13,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="RECT">
+<link rel="canonical" href="https://sokiicz.github.io/rect/">
 <meta property="og:title" content="RECT — Shikaku Puzzle">
 <meta property="og:description" content="Divide the grid into rectangles. One number each. Area equals the number.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://sokiicz.github.io/rect/">
+<meta property="og:image" content="https://sokiicz.github.io/rect/icon-512.png">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://sokiicz.github.io/rect/icon-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -114,6 +118,12 @@
   button.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
   button.primary:hover{background:#3a372d;}
   button.toggle.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  button.restart{
+    padding:11px 18px;font-size:14px;font-weight:700;
+    background:#efeae0;border-color:#cfc8ba;color:var(--text);
+  }
+  button.restart:hover{background:#e7e1d4;border-color:#bdb4a1;}
+  button.restart:active{background:#ddd6c6;}
   .modal-bg{
     position:fixed;inset:0;
     background:rgba(26,24,20,.32);
@@ -182,11 +192,11 @@
   </div>
   <footer>
     <div class="timer" id="timer">00:00</div>
-    <button id="clear" class="iconbtn" title="Start over — erase all" aria-label="Start over, erase all">↺</button>
     <div class="spacer"></div>
     <button id="undo" title="Undo last rectangle">Undo</button>
-    <button id="hint" title="Reveal one rectangle">Hint · ★3</button>
     <button id="erase" class="toggle" title="Erase mode">Erase</button>
+    <button id="hint" title="Reveal one rectangle">Hint ★3</button>
+    <button id="clear" class="restart" title="Start over — erase all" aria-label="Start over, erase all">↺ Restart</button>
     <button id="next" class="primary" title="Next level">Next</button>
   </footer>
 </div>
@@ -418,6 +428,9 @@
   // ---------- persistence ----------
   function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+  // persistent per-level clock — survives reload and start-over
+  function readTimer(){ try{ const o=JSON.parse(lsGet('rect.timer')); if(o&&typeof o.level==='number'&&typeof o.startAt==='number') return o; }catch(e){} return null; }
+  function writeTimer(level,startAt){ lsSet('rect.timer',JSON.stringify({level,startAt})); }
   function storeLevel(level){
     try{ history.replaceState(null,'','#level='+level); }catch(e){}
     lsSet('rect.level',String(level));
@@ -478,14 +491,15 @@
   }
 
   // ---------- timer ----------
-  function startTimer(){ if(state.timerRunning||state.solved) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(); }
+  let tickGen=0;
+  function startTimer(){ if(state.timerRunning||state.solved) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(++tickGen); }
   function stopTimer(){ state.timerRunning=false; }
   function fmt(ms){ const s=Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
-  function tick(){
-    if(!state.timerRunning) return;
+  function tick(gen){
+    if(!state.timerRunning||gen!==tickGen) return; // only the latest loop survives
     state.elapsed=Date.now()-state.timeStart;
     elTimer.textContent=fmt(state.elapsed);
-    requestAnimationFrame(tick);
+    requestAnimationFrame(()=>tick(gen));
   }
 
   // ---------- layout / sizing ----------
@@ -616,12 +630,13 @@
     elLvl.textContent='Level '+state.level+' · '+state.N+'×'+state.N;
     elProg.textContent=validCount()+' / '+state.clues.length+' ✓';
     const left=state.maxHints-state.hintsUsed;
-    elHint.textContent='Hint · ★'+left;
+    elHint.textContent='Hint ★'+left;
     elHint.disabled=left<=0||state.solved;
     elUndo.disabled=state.rects.length===0||state.solved;
     elErase.disabled=state.solved;
     elClear.disabled=state.solved;
     elNext.disabled=!state.solved; // can't advance until the grid is finished
+    elNext.style.display=state.solved?'':'none'; // free up the bar for Restart during play
     elErase.classList.toggle('on',state.eraseMode);
   }
 
@@ -815,10 +830,8 @@
     state.validFlags=new Array(state.clues.length).fill(false);
     state.pulses={}; state.eraseMode=false;
     clearPending();
-    preplaceOnes();                                   // restore the free 1×1 boxes
-    state.elapsed=0;                                  // start the attempt over
-    if(state.timerRunning){ state.timeStart=Date.now(); } else { startTimer(); }
-    elTimer.textContent='00:00';
+    preplaceOnes();                          // restore the free 1×1 boxes
+    if(!state.timerRunning) startTimer();     // keep the clock running — never reset it
     buzz(12);
     afterChange();
   });
@@ -868,7 +881,7 @@
     state.level=level;
     state.solved=false; state.solveAnim=0;
     state.eraseMode=false; state.preview=null; state.down=null;
-    state.hintsUsed=0; state.elapsed=0; state.timerRunning=false;
+    state.hintsUsed=0; state.timerRunning=false;
     state.pulses={}; state.validFlags=[];
     clearPending(); clearAdvance();
     if(state.pulseRAF){ cancelAnimationFrame(state.pulseRAF); state.pulseRAF=0; }
@@ -897,7 +910,13 @@
       elGen.classList.remove('on');
       resize();
       syncUI();
-      startTimer(); // run the clock as soon as the level is on screen
+      // resume this level's clock if it already exists (survives reload / start-over); else start fresh
+      const t=readTimer();
+      let startAt;
+      if(t&&t.level===level){ startAt=t.startAt; }
+      else { startAt=Date.now(); writeTimer(level,startAt); }
+      state.elapsed=Math.max(0,Date.now()-startAt);
+      startTimer();
     },24);
   }
 

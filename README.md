@@ -31,11 +31,16 @@ python -m http.server 8000   # then open http://localhost:8000
 - One `index.html`: HTML5 Canvas (2D, devicePixelRatio-aware), Pointer Events, Geist font via Google Fonts.
 - No external JS, no server, no accounts, no tracking.
 
+## PWA
+Installable and offline-capable: `manifest.webmanifest`, a service worker (`sw.js`,
+network-first for the HTML, cache-first for assets/fonts), and PNG/SVG icons.
+When deploying a new version, bump `CACHE` in `sw.js` (e.g. `rect-v3` → `rect-v4`)
+so returning visitors get the update.
+
 ## Deploy
-GitHub Pages serves the file as-is at `https://sokiicz.github.io/rect/`.
+GitHub Pages serves the files as-is at `https://sokiicz.github.io/rect/`.
 No `base` config needed (single static file, all paths relative).
-Before "ready": add `robots.txt`, `sitemap.xml`, and a `<link rel="canonical">` once the
-final URL is fixed. (OG/Twitter/description tags are already in `index.html`.)
+SEO is in place: canonical, OG/Twitter (incl. image), `robots.txt`, and `sitemap.xml`.
 
 ## Env vars
 None. (`D:/ai/Apps/Secrets/rect.txt` exists but is unused — no secrets in this app.)

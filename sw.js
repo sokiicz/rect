@@ -1,5 +1,5 @@
-/* RECT service worker — offline app shell + opportunistic font caching */
-const CACHE = 'rect-v1';
+/* RECT service worker — fresh HTML when online, full offline fallback */
+const CACHE = 'rect-v3';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -17,6 +17,18 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+
+  // Network-first for navigations / the HTML document — never serve a stale app shell while online.
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    e.respondWith(
+      fetch(req)
+        .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return res; })
+        .catch(() => caches.match(req).then(c => c || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Cache-first for everything else (icons, fonts, manifest), refreshing the cache in the background.
   e.respondWith(
     caches.match(req).then(cached => {
       const network = fetch(req).then(res => {
