@@ -6,6 +6,13 @@
 <title>RECT — Shikaku Puzzle</title>
 <meta name="description" content="RECT — a clean, mobile-first Shikaku logic puzzle. Divide the grid into rectangles, one number each, area equals the number.">
 <meta name="theme-color" content="#f5f4ef">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="RECT">
 <meta property="og:title" content="RECT — Shikaku Puzzle">
 <meta property="og:description" content="Divide the grid into rectangles. One number each. Area equals the number.">
 <meta property="og:type" content="website">
@@ -175,6 +182,7 @@
   </div>
   <footer>
     <div class="timer" id="timer">00:00</div>
+    <button id="clear" class="iconbtn" title="Start over — erase all" aria-label="Start over, erase all">↺</button>
     <div class="spacer"></div>
     <button id="undo" title="Undo last rectangle">Undo</button>
     <button id="hint" title="Reveal one rectangle">Hint · ★3</button>
@@ -396,6 +404,7 @@
   const elHint=document.getElementById('hint');
   const elErase=document.getElementById('erase');
   const elNext=document.getElementById('next');
+  const elClear=document.getElementById('clear');
   const modalBg=document.getElementById('modal-bg');
   const helpBg=document.getElementById('help-bg');
   const elHelp=document.getElementById('help');
@@ -611,6 +620,7 @@
     elHint.disabled=left<=0||state.solved;
     elUndo.disabled=state.rects.length===0||state.solved;
     elErase.disabled=state.solved;
+    elClear.disabled=state.solved;
     elNext.disabled=!state.solved; // can't advance until the grid is finished
     elErase.classList.toggle('on',state.eraseMode);
   }
@@ -758,8 +768,11 @@
     state.preview=null;
     const dur=Date.now()-d.time;
 
-    if(state.eraseMode && !d.moved){
-      const r=rectAtCell(c); if(r){ removeRectById(r.id); clearPending(); afterChange(); return; }
+    // erase mode: any click/drag removes the box under the pointer — never draws or places
+    if(state.eraseMode){
+      const r=rectAtCell(c)||rectAtCell(d.cell);
+      if(r){ removeRectById(r.id); buzz(8); }
+      clearPending(); afterChange(); return;
     }
     // long-press removal (touch only — mouse uses right-click)
     if(d.touch && !d.moved && dur>=500){
@@ -795,6 +808,20 @@
     afterChange();
   });
   elHint.addEventListener('click',useHint);
+  elClear.addEventListener('click',()=>{
+    if(state.solved) return;
+    state.rects=[]; state.coverOwner=new Int32Array(state.N*state.N);
+    state.coveredCount=0; state.rectId=0; state.colorCounter=0;
+    state.validFlags=new Array(state.clues.length).fill(false);
+    state.pulses={}; state.eraseMode=false;
+    clearPending();
+    preplaceOnes();                                   // restore the free 1×1 boxes
+    state.elapsed=0;                                  // start the attempt over
+    if(state.timerRunning){ state.timeStart=Date.now(); } else { startTimer(); }
+    elTimer.textContent='00:00';
+    buzz(12);
+    afterChange();
+  });
   elErase.addEventListener('click',()=>{ if(state.solved) return; state.eraseMode=!state.eraseMode; clearPending(); afterChange(); });
   elNext.addEventListener('click',()=>{ if(state.solved) advance(); }); // only works once finished
   document.getElementById('m-next').addEventListener('click',advance);
@@ -870,6 +897,7 @@
       elGen.classList.remove('on');
       resize();
       syncUI();
+      startTimer(); // run the clock as soon as the level is on screen
     },24);
   }
 
@@ -881,6 +909,11 @@
   loadLevel(startLevel());
   if(!lsGet('rect.seen')) setTimeout(openHelp,260); // first-run onboarding
 })();
+
+// PWA: register service worker for offline + installability
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
 </script>
 </body>
 </html>
