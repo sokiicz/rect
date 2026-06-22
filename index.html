@@ -80,20 +80,18 @@
     overflow:hidden;
   }
   canvas{display:block;touch-action:none;}
-  #zoomctl{
-    position:absolute;right:10px;bottom:10px;
-    display:flex;flex-direction:column;gap:6px;
-  }
+  /* zoom controls live in the header (fixed bar) so they never cover the grid */
+  #zoomctl{display:flex;align-items:center;gap:4px;}
   #zoomctl button{
-    width:38px;height:38px;padding:0;border-radius:8px;
-    font-size:20px;font-weight:700;line-height:1;
-    background:rgba(255,255,255,0.92);
-    border:1px solid var(--grid-line);color:var(--text);
-    box-shadow:0 1px 3px rgba(0,0,0,0.08);
+    width:30px;height:28px;padding:0;border-radius:6px;
+    font-size:17px;font-weight:700;line-height:1;
+    background:var(--surface);
+    border:1px solid var(--grid-line);color:var(--text-muted);
     display:flex;align-items:center;justify-content:center;
   }
-  #zoomctl button#zfit{font-size:15px;}
-  #zoomctl button:disabled{opacity:.35;}
+  #zoomctl button:hover{color:var(--text);border-color:#bdb9b0;}
+  #zoomctl button#zfit{font-size:13px;}
+  #zoomctl button:disabled{opacity:.3;}
   #gen{
     position:absolute;inset:0;
     display:none;align-items:center;justify-content:center;
@@ -200,6 +198,11 @@
 <div id="app">
   <header>
     <div class="brand">RECT</div>
+    <div id="zoomctl">
+      <button id="zout" aria-label="Zoom out" title="Zoom out">−</button>
+      <button id="zfit" aria-label="Fit grid to screen" title="Fit to screen">⤢</button>
+      <button id="zin" aria-label="Zoom in" title="Zoom in">+</button>
+    </div>
     <div class="hdr-right">
       <div class="meta">
         <div class="lvl" id="lvl">Level 1 · 4×4</div>
@@ -211,11 +214,6 @@
   </header>
   <div id="canvas-wrap">
     <canvas id="board"></canvas>
-    <div id="zoomctl">
-      <button id="zin" aria-label="Zoom in" title="Zoom in">+</button>
-      <button id="zout" aria-label="Zoom out" title="Zoom out">−</button>
-      <button id="zfit" aria-label="Fit grid to screen" title="Fit to screen">⤢</button>
-    </div>
     <div id="gen">Generating…</div>
   </div>
   <footer>
@@ -569,20 +567,22 @@
     view.baseCell=Math.max(2,Math.min(72,Math.floor((Math.min(cssW,cssH)-margin*2)/state.N)));
     view.maxZoom=Math.max(1,64/view.baseCell);     // never enlarge a cell past ~64px
     view.zoom=Math.min(Math.max(view.zoom,1),view.maxZoom);
-    cellSize=view.baseCell*view.zoom;
+    cellSize=Math.max(2,Math.round(view.baseCell*view.zoom));
     clampView(); updateZoomUI(); draw();
   }
-  // keep the grid centred when smaller than the viewport, otherwise pinned within the edges
+  // grid centred when it fits; when zoomed past the viewport, allow over-panning by half a screen so
+  // any edge can be pulled to the centre (handy on mobile to reach edge cells / clear the zoom buttons)
   function clampView(){
     const g=cellSize*state.N;
-    view.offX = g<=cssW ? (cssW-g)/2 : Math.min(0,Math.max(cssW-g,view.offX));
-    view.offY = g<=cssH ? (cssH-g)/2 : Math.min(0,Math.max(cssH-g,view.offY));
+    const mx=cssW*0.5, my=cssH*0.5;
+    view.offX = g<=cssW ? (cssW-g)/2 : Math.min(mx,Math.max(cssW-g-mx,view.offX));
+    view.offY = g<=cssH ? (cssH-g)/2 : Math.min(my,Math.max(cssH-g-my,view.offY));
   }
   function setZoom(z,fx,fy){                        // zoom toward focal point (fx,fy) in canvas css px
     z=Math.min(Math.max(z,1),view.maxZoom);
     if(Math.abs(z-view.zoom)<1e-4) return;
     const gx=(fx-view.offX)/cellSize, gy=(fy-view.offY)/cellSize;
-    view.zoom=z; cellSize=view.baseCell*view.zoom;
+    view.zoom=z; cellSize=Math.max(2,Math.round(view.baseCell*view.zoom));
     view.offX=fx-gx*cellSize; view.offY=fy-gy*cellSize;
     clampView(); updateZoomUI(); draw();
   }
@@ -675,11 +675,11 @@
       ctx.beginPath(); ctx.arc(cx,cy,cs*0.16,0,Math.PI*2); ctx.fill();
       ctx.restore();
     }
-    // outer border
+    // outer border — flush with the grid edges so the first/last cells aren't visually narrower
     ctx.strokeStyle=C.border; ctx.lineWidth=2;
-    ctx.strokeRect(1,1,N*cs-2,N*cs-2);
-    // numbers
-    const fs=Math.max(8,Math.round(cs*0.55)); // lower floor so 2-digit clues fit small cells on big grids
+    ctx.strokeRect(0,0,N*cs,N*cs);
+    // numbers (font auto-shrinks so multi-digit clues fit inside the cell)
+    const baseFs=Math.max(7,Math.round(cs*0.55)), maxNumW=cs*0.82;
     ctx.textAlign='center'; ctx.textBaseline='middle';
     const now=performance.now();
     for(let i=0;i<state.clues.length;i++){
@@ -700,9 +700,14 @@
         if(t>=1){ state.pulses[i]=undefined; }
         else scale=1+0.28*Math.sin(t*Math.PI);
       }
-      ctx.font='700 '+Math.round(fs*scale)+"px 'Geist',sans-serif";
+      const str=String(c.value);
+      let fs=baseFs;
+      ctx.font='700 '+fs+"px 'Geist',sans-serif";
+      const w=ctx.measureText(str).width;
+      if(w>maxNumW) fs=Math.max(6,Math.floor(fs*maxNumW/w)); // shrink wide numbers to fit
+      ctx.font='700 '+Math.max(6,Math.round(fs*scale))+"px 'Geist',sans-serif";
       ctx.fillStyle=col;
-      ctx.fillText(String(c.value),(c.x+0.5)*cs,(c.y+0.5)*cs+1);
+      ctx.fillText(str,(c.x+0.5)*cs,(c.y+0.5)*cs+1);
     }
   }
 
@@ -855,7 +860,7 @@
     const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
     const mx=(a.x+b.x)/2-rect.left, my=(a.y+b.y)/2-rect.top;
     view.zoom=Math.min(Math.max(gesture.startZoom*(d/gesture.d),1),view.maxZoom);
-    cellSize=view.baseCell*view.zoom;
+    cellSize=Math.max(2,Math.round(view.baseCell*view.zoom));
     view.offX=mx-gesture.gx*cellSize;   // hold the start grid point under the live midpoint (pan+zoom)
     view.offY=my-gesture.gy*cellSize;
     clampView(); updateZoomUI(); draw();
