@@ -22,10 +22,14 @@ python -m http.server 8000   # then open http://localhost:8000
 - The level auto-completes when the whole grid is correctly partitioned.
 
 ## Features
-- Infinite numbered levels; grid grows 4×4 → 15×15 as you progress (seeded, reproducible).
+- Infinite numbered levels; grid grows 5×5 → 50×50 as you progress (+1 every 3 levels, seeded/reproducible), with rectangle areas (clues) scaling past 100 on master-tier grids.
+- **Zoom & pan** so large grids stay playable on a phone: pinch / two-finger drag on touch, scroll-to-zoom + Shift/middle-drag to pan on desktop, plus on-canvas +/−/fit buttons.
+- **Active-time timer**: pauses when the tab is hidden or the window loses focus, so idle time never inflates a solve. Persists across reload.
+- **Stats screen** (header chart icon): total solved, overall average/best, and average + best time broken down by grid size.
+- Finished levels show a summary and wait — no auto-advance; tap **Next Level** to continue.
 - Current level persists in the URL hash (`#level=42`) and `localStorage`.
-- Timer, unlimited Undo, up to 3 Hints/level (each costs a ★), Erase mode.
-- Recursive guillotine generation + backtracking solver guarantees every puzzle is solvable.
+- Unlimited Undo, up to 3 Hints/level (each costs a ★), Erase mode.
+- Recursive guillotine generation always yields a solvable puzzle; small grids are additionally filtered for a (near-)unique solution, big grids accept ambiguity to stay instant.
 
 ## Tech
 - One `index.html`: HTML5 Canvas (2D, devicePixelRatio-aware), Pointer Events, Geist font via Google Fonts.

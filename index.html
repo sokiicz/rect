@@ -76,9 +76,24 @@
     position:relative;
     display:flex;align-items:center;justify-content:center;
     min-height:0;
-    padding:10px;
+    padding:0;
+    overflow:hidden;
   }
   canvas{display:block;touch-action:none;}
+  #zoomctl{
+    position:absolute;right:10px;bottom:10px;
+    display:flex;flex-direction:column;gap:6px;
+  }
+  #zoomctl button{
+    width:38px;height:38px;padding:0;border-radius:8px;
+    font-size:20px;font-weight:700;line-height:1;
+    background:rgba(255,255,255,0.92);
+    border:1px solid var(--grid-line);color:var(--text);
+    box-shadow:0 1px 3px rgba(0,0,0,0.08);
+    display:flex;align-items:center;justify-content:center;
+  }
+  #zoomctl button#zfit{font-size:15px;}
+  #zoomctl button:disabled{opacity:.35;}
   #gen{
     position:absolute;inset:0;
     display:none;align-items:center;justify-content:center;
@@ -162,6 +177,13 @@
   .sheet li{font-size:13px;line-height:1.6;color:var(--text-muted);margin-bottom:4px;}
   .sheet li b{color:var(--text);font-weight:600;}
   .sheet button{width:100%;padding:12px 0;font-size:14px;}
+  .stats-cap{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px;font-weight:600;}
+  .stats-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .stats-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:600;text-align:right;padding:4px 0;border-bottom:1px solid var(--grid-line);}
+  .stats-table th:first-child{text-align:left;}
+  .stats-table td{padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;}
+  .stats-table td:first-child{text-align:left;font-weight:600;}
+  .stats-foot{font-size:12px;color:var(--text-muted);margin-top:12px;}
   @media (max-height:520px){
     header{padding:8px 14px 6px;}
     footer{gap:6px;padding:7px 10px;padding-bottom:calc(7px + env(safe-area-inset-bottom));}
@@ -183,11 +205,17 @@
         <div class="lvl" id="lvl">Level 1 · 4×4</div>
         <div class="prog" id="prog">0 / 0 ✓</div>
       </div>
+      <button id="stats" class="iconbtn" aria-label="Statistics" title="Statistics"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><line x1="3" y1="13" x2="3" y2="8.5"/><line x1="7.5" y1="13" x2="7.5" y2="4"/><line x1="12" y1="13" x2="12" y2="6.5"/></svg></button>
       <button id="help" class="iconbtn" aria-label="How to play">?</button>
     </div>
   </header>
   <div id="canvas-wrap">
     <canvas id="board"></canvas>
+    <div id="zoomctl">
+      <button id="zin" aria-label="Zoom in" title="Zoom in">+</button>
+      <button id="zout" aria-label="Zoom out" title="Zoom out">−</button>
+      <button id="zfit" aria-label="Fit grid to screen" title="Fit to screen">⤢</button>
+    </div>
     <div id="gen">Generating…</div>
   </div>
   <footer>
@@ -221,12 +249,20 @@
     <h2>How to play</h2>
     <p class="rule">Divide the whole grid into rectangles. Each rectangle must contain <b>exactly one number</b>, and that number equals the rectangle's <b>area</b> (width × height).</p>
     <ul>
-      <li><b>Desktop:</b> click &amp; drag to draw a rectangle; click a single cell for a 1×1. Right-click to remove.</li>
-      <li><b>Touch:</b> tap a start cell, then tap the opposite corner — tap the same cell for a 1×1.</li>
-      <li><b>Remove:</b> long-press a rectangle, right-click it, or use <b>Erase</b> mode. Drawing over an existing box replaces it.</li>
-      <li>A correct box colours its number; a <b>red dashed outline</b> means the box is the wrong size for its number.</li>
+      <li><b>Desktop:</b> click &amp; drag to draw a rectangle. Right-click a box to remove it. Scroll to zoom; Shift- or middle-drag to pan.</li>
+      <li><b>Touch:</b> tap a start cell, then the opposite corner to draw — tap the same cell again to cancel. Pinch to zoom, two-finger drag to pan.</li>
+      <li><b>Remove:</b> long-press a box, right-click it, or use <b>Erase</b> mode. Drawing over an existing box replaces it.</li>
+      <li>A correct box colours its number; a <b>red dashed outline</b> means it's the wrong size.</li>
     </ul>
     <button id="help-close" class="primary">Got it</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="stats-bg">
+  <div class="modal sheet">
+    <h2>Your stats</h2>
+    <div id="stats-body"></div>
+    <button id="stats-close" class="primary" style="margin-top:16px">Close</button>
   </div>
 </div>
 
@@ -263,43 +299,40 @@
   const lerp=(a,b,t)=>a+(b-a)*t;
 
   // ---------- level → grid size + difficulty ----------
-  const BANDS=[
-    [1,3,4],[4,8,5],[9,15,6],[16,24,7],[25,35,8],[36,48,9],
-    [49,63,10],[64,80,11],[81,99,12],[100,120,13],[121,143,14],[144,184,15]
-  ];
-  function bandFor(level){
-    for(const b of BANDS){ if(level>=b[0]&&level<=b[1]) return b; }
-    return [144,184,15]; // 15x15 plateau
-  }
-  function gridSizeForLevel(level){ return bandFor(level)[2]; }
-  function difficultyT(level){
-    const b=bandFor(level);
-    if(level>b[1]) return 1; // beyond plateau end => max
-    const span=b[1]-b[0];
-    return span<=0?0:Math.min(1,(level-b[0])/span);
-  }
+  // Grid grows +1 every 3 levels from 5×5 up to a huge 50×50 master tier (reached ~level 136).
+  // Big grids are navigable via pinch/scroll zoom + pan; puzzles are always solvable by construction
+  // (uniqueness isn't required on big grids — ambiguity is acceptable and keeps generation instant).
+  const GRID_MIN=5, GRID_MAX=50;
+  function gridSizeForLevel(level){ return Math.min(GRID_MAX, GRID_MIN+Math.floor((level-1)/3)); }
+  // Global difficulty 0→1 over the first ~32 levels: scales piece size up so clues get bigger and
+  // more ambiguous fast. Past that, the growing grid keeps carrying the difficulty upward.
+  function difficultyT(level){ return Math.max(0,Math.min(1,(level-1)/32)); }
 
   // ---------- guillotine partition ----------
-  function partition(x,y,w,h,rng,maxLeaf,out){
+  // Splits N×N into leaf rectangles. Guards guarantee no area-1 (value-1) leaves: non-strip cuts
+  // always leave ≥2-area pieces, and strip (1×n) cuts keep both halves ≥2 long.
+  function partition(x,y,w,h,rng,minLeaf,maxLeaf,out){
     const area=w*h;
     const canV=w>=2, canH=h>=2;
-    let stop=false;
-    if(!canV&&!canH){ stop=true; }
-    else if(area<=maxLeaf){
-      stop = area<=2 ? rng()<0.85 : rng()<0.65;
-    }
-    if(stop){ out.push({x,y,w,h}); return; }
+    if(!canV&&!canH){ out.push({x,y,w,h}); return; }   // 1×1 (shouldn't happen with the guards)
+    if(area<=minLeaf){ out.push({x,y,w,h}); return; }  // never split below the minimum leaf area
+    if(area<=maxLeaf && rng()<0.6){ out.push({x,y,w,h}); return; } // inside the window: chance to stop
     let vertical;
     if(canV&&canH) vertical=rng()<0.5;
     else vertical=canV;
     if(vertical){
-      const cut=1+Math.floor(rng()*(w-1));
-      partition(x,y,cut,h,rng,maxLeaf,out);
-      partition(x+cut,y,w-cut,h,rng,maxLeaf,out);
+      // a 1-tall strip must keep both halves ≥2 wide so a single cell is never stranded as 1×1
+      const lo=h===1?2:1, hi=h===1?w-2:w-1;
+      if(hi<lo){ out.push({x,y,w,h}); return; }
+      const cut=lo+Math.floor(rng()*(hi-lo+1));
+      partition(x,y,cut,h,rng,minLeaf,maxLeaf,out);
+      partition(x+cut,y,w-cut,h,rng,minLeaf,maxLeaf,out);
     } else {
-      const cut=1+Math.floor(rng()*(h-1));
-      partition(x,y,w,cut,rng,maxLeaf,out);
-      partition(x,y+cut,w,h-cut,rng,maxLeaf,out);
+      const lo=w===1?2:1, hi=w===1?h-2:h-1;
+      if(hi<lo){ out.push({x,y,w,h}); return; }
+      const cut=lo+Math.floor(rng()*(hi-lo+1));
+      partition(x,y,w,cut,rng,minLeaf,maxLeaf,out);
+      partition(x,y+cut,w,h-cut,rng,minLeaf,maxLeaf,out);
     }
   }
 
@@ -370,16 +403,23 @@
   function generatePuzzle(level){
     const N=gridSizeForLevel(level);
     const t=difficultyT(level);
-    const maxLeaf=Math.max(2,Math.round(lerp(N*1.6,2.5,t)));
+    // Harder = bigger, more ambiguous pieces. minLeaf=2 ⇒ value-1 clues never appear.
+    // The high end pushes clue values well past 100 on master grids.
+    const maxLeaf=Math.max(4,Math.round(lerp(N*1.3,N*3,t)));
+    const minLeaf=2;
+    // Uniqueness is cheap to verify on small grids, so prefer few-solution puzzles there; on big
+    // grids skip the solver entirely (ambiguity is fine) so generation stays instant at any size.
+    const wantUnique=N<=16, attempts=wantUnique?32:1;
     let fallback=null, last=null;
-    for(let attempt=0;attempt<25;attempt++){
+    for(let attempt=0;attempt<attempts;attempt++){
       const seed=level*1000+attempt;
       const rng=mulberry32(seed);
-      const leaves=[]; partition(0,0,N,N,rng,maxLeaf,leaves);
+      const leaves=[]; partition(0,0,N,N,rng,minLeaf,maxLeaf,leaves);
       const clues=leaves.map(L=>({x:L.x+Math.floor(rng()*L.w),y:L.y+Math.floor(rng()*L.h),value:L.w*L.h}));
       const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
       const puzzle={N,clues,solution,level};
       last=puzzle;
+      if(!wantUnique) return puzzle;          // big grid: always solvable by construction — accept now
       const res=solveCount(N,clues,4,Date.now()+800);
       if(res.count>=1){
         if(res.count<=3) return puzzle;       // ideal: few solutions
@@ -418,9 +458,15 @@
   const modalBg=document.getElementById('modal-bg');
   const helpBg=document.getElementById('help-bg');
   const elHelp=document.getElementById('help');
+  const elStats=document.getElementById('stats');
+  const statsBg=document.getElementById('stats-bg');
 
-  let cellSize=24, originX=0, originY=0, dpr=1, cssW=0, cssH=0;
-  let helpOpen=false;
+  let cellSize=24, dpr=1, cssW=0, cssH=0;
+  // view = pan/zoom of the grid within the viewport-filling canvas. zoom 1 = whole grid fits.
+  const view={zoom:1, baseCell:24, maxZoom:1, offX:0, offY:0};
+  const pointers=new Map();                 // active pointerId → {x,y} (for pinch/pan)
+  let gesture=null, panning=null, suppressTapUntilEmpty=false;
+  let helpOpen=false, statsOpen=false;
   let pendingTimer=0, advanceTimer=0;
 
   function buzz(pattern){ try{ if(navigator.vibrate) navigator.vibrate(pattern); }catch(_){} }
@@ -428,9 +474,9 @@
   // ---------- persistence ----------
   function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
-  // persistent per-level clock — survives reload and start-over
-  function readTimer(){ try{ const o=JSON.parse(lsGet('rect.timer')); if(o&&typeof o.level==='number'&&typeof o.startAt==='number') return o; }catch(e){} return null; }
-  function writeTimer(level,startAt){ lsSet('rect.timer',JSON.stringify({level,startAt})); }
+  // persistent per-level clock — stores accumulated active ms (not wall-clock); survives reload + start-over
+  function readTimer(){ try{ const o=JSON.parse(lsGet('rect.timer')); if(o&&typeof o.level==='number'&&typeof o.elapsed==='number') return o; }catch(e){} return null; }
+  function writeTimer(level,elapsed){ lsSet('rect.timer',JSON.stringify({level,elapsed})); }
   function storeLevel(level){
     try{ history.replaceState(null,'','#level='+level); }catch(e){}
     lsSet('rect.level',String(level));
@@ -491,39 +537,74 @@
   }
 
   // ---------- timer ----------
-  let tickGen=0;
-  function startTimer(){ if(state.timerRunning||state.solved) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(++tickGen); }
-  function stopTimer(){ state.timerRunning=false; }
+  // Counts only *active* time: pauses when the tab is hidden or the window loses focus, so idle time
+  // never inflates a solve. Persists accumulated elapsed (not a wall-clock start), so a reload resumes
+  // where you left off without crediting time spent away.
+  let tickGen=0, lastPersist=0;
+  function startTimer(){ if(state.timerRunning||state.solved||document.hidden) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(++tickGen); }
+  function pauseTimer(){ if(!state.timerRunning) return; state.elapsed=Date.now()-state.timeStart; state.timerRunning=false; persistTimer(); }
+  function stopTimer(){ pauseTimer(); }
+  function persistTimer(){ writeTimer(state.level,state.elapsed); }
   function fmt(ms){ const s=Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
   function tick(gen){
     if(!state.timerRunning||gen!==tickGen) return; // only the latest loop survives
     state.elapsed=Date.now()-state.timeStart;
     elTimer.textContent=fmt(state.elapsed);
+    if(state.elapsed-lastPersist>4000){ lastPersist=state.elapsed; persistTimer(); } // throttled save
     requestAnimationFrame(()=>tick(gen));
   }
 
-  // ---------- layout / sizing ----------
+  // ---------- layout / sizing + view (zoom & pan) ----------
   function resize(){
     const r=wrap.getBoundingClientRect();
-    const availW=r.width-20, availH=r.height-20;
-    cellSize=Math.max(12,Math.min(72,Math.floor(Math.min(availW,availH)/state.N)));
-    const gridPx=cellSize*state.N;
-    cssW=gridPx; cssH=gridPx;
-    originX=0; originY=0;
+    cssW=Math.max(1,Math.floor(r.width));
+    cssH=Math.max(1,Math.floor(r.height));
     dpr=Math.max(1,window.devicePixelRatio||1);
     canvas.style.width=cssW+'px';
     canvas.style.height=cssH+'px';
     canvas.width=Math.round(cssW*dpr);
     canvas.height=Math.round(cssH*dpr);
-    draw();
+    // baseCell = cell size that fits the whole grid on screen at zoom 1 (with a small margin)
+    const margin=14;
+    view.baseCell=Math.max(2,Math.min(72,Math.floor((Math.min(cssW,cssH)-margin*2)/state.N)));
+    view.maxZoom=Math.max(1,64/view.baseCell);     // never enlarge a cell past ~64px
+    view.zoom=Math.min(Math.max(view.zoom,1),view.maxZoom);
+    cellSize=view.baseCell*view.zoom;
+    clampView(); updateZoomUI(); draw();
+  }
+  // keep the grid centred when smaller than the viewport, otherwise pinned within the edges
+  function clampView(){
+    const g=cellSize*state.N;
+    view.offX = g<=cssW ? (cssW-g)/2 : Math.min(0,Math.max(cssW-g,view.offX));
+    view.offY = g<=cssH ? (cssH-g)/2 : Math.min(0,Math.max(cssH-g,view.offY));
+  }
+  function setZoom(z,fx,fy){                        // zoom toward focal point (fx,fy) in canvas css px
+    z=Math.min(Math.max(z,1),view.maxZoom);
+    if(Math.abs(z-view.zoom)<1e-4) return;
+    const gx=(fx-view.offX)/cellSize, gy=(fy-view.offY)/cellSize;
+    view.zoom=z; cellSize=view.baseCell*view.zoom;
+    view.offX=fx-gx*cellSize; view.offY=fy-gy*cellSize;
+    clampView(); updateZoomUI(); draw();
+  }
+  function fitView(){ view.zoom=1; cellSize=view.baseCell; clampView(); updateZoomUI(); draw(); }
+  function updateZoomUI(){
+    const zi=document.getElementById('zin'), zo=document.getElementById('zout'), zf=document.getElementById('zfit'), ctl=document.getElementById('zoomctl');
+    if(!ctl) return;
+    const canZoom=view.maxZoom>1.001;
+    ctl.style.display=canZoom?'flex':'none';        // hide entirely when the grid already fills the screen
+    zi.disabled=!canZoom||view.zoom>=view.maxZoom-1e-3;
+    zo.disabled=view.zoom<=1.001;
+    zf.disabled=view.zoom<=1.001;
   }
 
   // ---------- drawing ----------
   function draw(){
     if(!state.clueAt) return;
     const N=state.N, cs=cellSize;
+    // clear the whole viewport, then shift into grid space for the current pan/zoom
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cssW,cssH);
+    ctx.setTransform(dpr,0,0,dpr,Math.round(view.offX*dpr),Math.round(view.offY*dpr));
     // grid surface
     ctx.fillStyle=C.surface;
     ctx.fillRect(0,0,N*cs,N*cs);
@@ -598,7 +679,7 @@
     ctx.strokeStyle=C.border; ctx.lineWidth=2;
     ctx.strokeRect(1,1,N*cs-2,N*cs-2);
     // numbers
-    const fs=Math.max(11,Math.round(cs*0.55));
+    const fs=Math.max(8,Math.round(cs*0.55)); // lower floor so 2-digit clues fit small cells on big grids
     ctx.textAlign='center'; ctx.textBaseline='middle';
     const now=performance.now();
     for(let i=0;i<state.clues.length;i++){
@@ -651,6 +732,7 @@
   function onSolve(){
     state.solved=true;
     stopTimer();
+    recordStat();                 // log this solve (time / grid size / hints) for the stats screen
     clearPending(); state.preview=null;
     buzz([0,45,55,45]);
     syncUI();
@@ -673,7 +755,7 @@
       '★★★'.split('').map((s,i)=>i<stars?'★':'<span class="off">★</span>').join('');
     modalBg.classList.add('on');
     requestAnimationFrame(()=>modalBg.classList.add('show'));
-    advanceTimer=setTimeout(advance,2400); // auto-advance to the next level
+    // no auto-advance: the summary stays up until the player chooses to continue
   }
   function hideModal(){ modalBg.classList.remove('show'); setTimeout(()=>modalBg.classList.remove('on'),200); }
 
@@ -708,8 +790,8 @@
   // ---------- pointer interaction ----------
   function cellFromEvent(e){
     const rect=canvas.getBoundingClientRect();
-    const x=Math.floor((e.clientX-rect.left)/cellSize);
-    const y=Math.floor((e.clientY-rect.top)/cellSize);
+    const x=Math.floor((e.clientX-rect.left-view.offX)/cellSize);
+    const y=Math.floor((e.clientY-rect.top-view.offY)/cellSize);
     if(x<0||y<0||x>=state.N||y>=state.N) return null;
     return {x,y};
   }
@@ -759,17 +841,48 @@
     state.pending=null;
   }
 
+  // ----- pinch/pan gesture (two pointers) -----
+  function beginGesture(){
+    const [a,b]=[...pointers.values()];
+    const rect=canvas.getBoundingClientRect();
+    const mx=(a.x+b.x)/2-rect.left, my=(a.y+b.y)/2-rect.top;
+    gesture={ d:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)), startZoom:view.zoom,
+              gx:(mx-view.offX)/cellSize, gy:(my-view.offY)/cellSize };
+  }
+  function updateGesture(){
+    const [a,b]=[...pointers.values()];
+    const rect=canvas.getBoundingClientRect();
+    const d=Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
+    const mx=(a.x+b.x)/2-rect.left, my=(a.y+b.y)/2-rect.top;
+    view.zoom=Math.min(Math.max(gesture.startZoom*(d/gesture.d),1),view.maxZoom);
+    cellSize=view.baseCell*view.zoom;
+    view.offX=mx-gesture.gx*cellSize;   // hold the start grid point under the live midpoint (pan+zoom)
+    view.offY=my-gesture.gy*cellSize;
+    clampView(); updateZoomUI(); draw();
+  }
+
   canvas.addEventListener('pointerdown',e=>{
     if(state.solved) return;
-    const c=cellFromEvent(e); if(!c) return;
     e.preventDefault();
     try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
+    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pointers.size>=2){                       // second finger → pinch/pan; abort any draw in progress
+      state.down=null; state.preview=null; clearPending();
+      suppressTapUntilEmpty=true; beginGesture(); draw(); return;
+    }
     const touch=e.pointerType==='touch'||e.pointerType==='pen';
+    if(!touch && (e.button===1||e.shiftKey)){    // desktop: middle-drag or shift-drag = pan
+      panning={x:e.clientX,y:e.clientY,offX:view.offX,offY:view.offY}; return;
+    }
+    const c=cellFromEvent(e); if(!c){ state.down=null; return; }
     const anchor=(touch&&state.pending)?state.pending:c;
     state.down={cell:c,time:Date.now(),anchor,moved:false,touch};
     if(!state.timerRunning) startTimer();
   });
   canvas.addEventListener('pointermove',e=>{
+    if(pointers.has(e.pointerId)) pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(gesture&&pointers.size>=2){ updateGesture(); return; }
+    if(panning){ view.offX=panning.offX+(e.clientX-panning.x); view.offY=panning.offY+(e.clientY-panning.y); clampView(); draw(); return; }
     if(!state.down||state.solved) return;
     const c=cellFromEvent(e); if(!c) return;
     if(c.x!==state.down.cell.x||c.y!==state.down.cell.y){ state.down.moved=true; state.down.cell=c; }
@@ -777,6 +890,14 @@
     draw();
   });
   function endPointer(e){
+    pointers.delete(e.pointerId);
+    if(panning){ panning=null; return; }
+    if(gesture){                                 // finishing a pinch never draws
+      if(pointers.size<2) gesture=null;
+      if(pointers.size===0) suppressTapUntilEmpty=false;
+      return;
+    }
+    if(suppressTapUntilEmpty){ if(pointers.size===0) suppressTapUntilEmpty=false; state.down=null; state.preview=null; return; }
     if(!state.down) return;
     const d=state.down; state.down=null;
     const c=cellFromEvent(e)||d.cell;
@@ -796,7 +917,8 @@
     if(d.moved){ tryPlace(d.anchor,c); clearPending(); afterChange(); return; } // drag = draw (mouse + touch)
     if(d.touch){
       if(state.pending){
-        tryPlace(state.pending,c); clearPending(); afterChange(); return; // second tap places (same cell = single 1×1 square)
+        if(state.pending.x===c.x&&state.pending.y===c.y){ clearPending(); afterChange(); return; } // tap same cell = cancel
+        tryPlace(state.pending,c); clearPending(); afterChange(); return; // second tap = opposite corner
       }
       setPending(c); afterChange(); return;                              // first tap = set start corner (auto-clears in 1s)
     }
@@ -805,13 +927,28 @@
     afterChange();
   }
   canvas.addEventListener('pointerup',endPointer);
-  canvas.addEventListener('pointercancel',()=>{ state.down=null; state.preview=null; draw(); });
+  canvas.addEventListener('pointercancel',e=>{
+    pointers.delete(e.pointerId);
+    if(pointers.size<2) gesture=null;
+    if(!pointers.size){ panning=null; suppressTapUntilEmpty=false; }
+    state.down=null; state.preview=null; draw();
+  });
   canvas.addEventListener('contextmenu',e=>{
     e.preventDefault();
     if(state.solved) return;
     const c=cellFromEvent(e); if(!c) return;
     const r=rectAtCell(c); if(r){ removeRectById(r.id); clearPending(); afterChange(); }
   });
+  // wheel = zoom toward cursor (desktop)
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const rect=canvas.getBoundingClientRect();
+    setZoom(view.zoom*Math.exp(-e.deltaY*0.0015), e.clientX-rect.left, e.clientY-rect.top);
+  },{passive:false});
+  // on-canvas zoom buttons (zoom toward viewport centre)
+  document.getElementById('zin').addEventListener('click',()=>setZoom(view.zoom*1.4,cssW/2,cssH/2));
+  document.getElementById('zout').addEventListener('click',()=>setZoom(view.zoom/1.4,cssW/2,cssH/2));
+  document.getElementById('zfit').addEventListener('click',fitView);
 
   function afterChange(){ detectNewlyValid(); syncUI(); draw(); checkSolved(); }
 
@@ -846,9 +983,47 @@
   document.getElementById('help-close').addEventListener('click',closeHelp);
   helpBg.addEventListener('click',e=>{ if(e.target===helpBg) closeHelp(); });
 
+  // ---------- statistics ----------
+  function readStats(){ try{ const a=JSON.parse(lsGet('rect.stats')); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+  function recordStat(){
+    const a=readStats();
+    a.push({lvl:state.level,N:state.N,ms:state.elapsed,hints:state.hintsUsed,ts:Date.now()});
+    if(a.length>500) a.splice(0,a.length-500);   // keep the log bounded
+    lsSet('rect.stats',JSON.stringify(a));
+  }
+  function fmtLong(ms){ const s=Math.round(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60);
+    return h>0?(h+'h '+(m%60)+'m'):(m>0?(m+'m '+(s%60)+'s'):(s+'s')); }
+  function openStats(){
+    const a=readStats(), body=document.getElementById('stats-body');
+    if(!a.length){ body.innerHTML='<p class="rule">No solves yet — finish a level and your times will show up here.</p>'; }
+    else {
+      const total=a.length, totalMs=a.reduce((s,e)=>s+e.ms,0), avg=totalMs/total, best=Math.min.apply(null,a.map(e=>e.ms));
+      const byN={}; for(const e of a){ (byN[e.N]=byN[e.N]||[]).push(e.ms); }
+      const rows=Object.keys(byN).map(Number).sort((x,y)=>x-y).map(n=>{
+        const arr=byN[n], av=arr.reduce((s,m)=>s+m,0)/arr.length, bs=Math.min.apply(null,arr);
+        return '<tr><td>'+n+'×'+n+'</td><td>'+arr.length+'</td><td>'+fmt(av)+'</td><td>'+fmt(bs)+'</td></tr>';
+      }).join('');
+      body.innerHTML=
+        '<div class="stat-row" style="margin-bottom:16px">'+
+          '<div class="stat"><div class="v">'+total+'</div><div class="l">Solved</div></div>'+
+          '<div class="stat"><div class="v">'+fmt(avg)+'</div><div class="l">Avg</div></div>'+
+          '<div class="stat"><div class="v">'+fmt(best)+'</div><div class="l">Best</div></div>'+
+        '</div>'+
+        '<div class="stats-cap">Average &amp; best by grid size</div>'+
+        '<table class="stats-table"><thead><tr><th>Grid</th><th>Solved</th><th>Avg</th><th>Best</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+        '<div class="stats-foot">Total time played: '+fmtLong(totalMs)+'</div>';
+    }
+    statsOpen=true; statsBg.classList.add('on'); requestAnimationFrame(()=>statsBg.classList.add('show'));
+  }
+  function closeStats(){ statsOpen=false; statsBg.classList.remove('show'); setTimeout(()=>statsBg.classList.remove('on'),200); }
+  elStats.addEventListener('click',openStats);
+  document.getElementById('stats-close').addEventListener('click',closeStats);
+  statsBg.addEventListener('click',e=>{ if(e.target===statsBg) closeStats(); });
+
   // keyboard
   window.addEventListener('keydown',e=>{
     if(e.key==='Escape'){
+      if(statsOpen){ closeStats(); return; }
       if(helpOpen){ closeHelp(); return; }
       if(state.pending){ state.pending=null; afterChange(); }
       return;
@@ -884,6 +1059,7 @@
     state.hintsUsed=0; state.timerRunning=false;
     state.pulses={}; state.validFlags=[];
     clearPending(); clearAdvance();
+    view.zoom=1; pointers.clear(); gesture=null; panning=null; suppressTapUntilEmpty=false; // fresh fit per level
     if(state.pulseRAF){ cancelAnimationFrame(state.pulseRAF); state.pulseRAF=0; }
     elTimer.textContent='00:00';
     storeLevel(level);
@@ -910,12 +1086,12 @@
       elGen.classList.remove('on');
       resize();
       syncUI();
-      // resume this level's clock if it already exists (survives reload / start-over); else start fresh
-      const t=readTimer();
-      let startAt;
-      if(t&&t.level===level){ startAt=t.startAt; }
-      else { startAt=Date.now(); writeTimer(level,startAt); }
-      state.elapsed=Math.max(0,Date.now()-startAt);
+      // resume this level's accumulated active time if saved (survives reload / start-over); else fresh
+      const saved=readTimer();
+      state.elapsed=(saved&&saved.level===level)?Math.max(0,saved.elapsed):0;
+      lastPersist=state.elapsed;
+      writeTimer(level,state.elapsed);
+      elTimer.textContent=fmt(state.elapsed);
       startTimer();
     },24);
   }
@@ -924,6 +1100,11 @@
   const ro=new ResizeObserver(()=>{ if(state.clueAt) resize(); });
   ro.observe(wrap);
   window.addEventListener('orientationchange',()=>setTimeout(resize,200));
+  // pause the clock whenever the player isn't looking (tab hidden / window blurred); resume on return
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden) pauseTimer(); else startTimer(); });
+  window.addEventListener('blur',pauseTimer);
+  window.addEventListener('focus',startTimer);
+  window.addEventListener('pagehide',pauseTimer);
   if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(()=>draw()); }
   loadLevel(startLevel());
   if(!lsGet('rect.seen')) setTimeout(openHelp,260); // first-run onboarding

@@ -9,6 +9,7 @@ build/
 !.env.example
 *.log
 app-meta.json
+.claude/
 .DS_Store
 .venv/
 __pycache__/
