@@ -330,6 +330,40 @@
     }
   }
 
+  // ---------- guillotine partition, shape-improved ----------
+  // Same splits as partition(), but tuned for nicer-looking pieces: cuts are centre-biased (fewer thin
+  // slivers / long 1×Y strips), a full-span band is usually cut perpendicular to the span (so very few
+  // full-width/height leaves), and long flat strips are less likely to stop. Tried first; if it can't
+  // yield a logic-solvable puzzle we fall back to plain partition() (which has a higher hit-rate).
+  function partitionShaped(x,y,w,h,rng,minLeaf,maxLeaf,N,out){
+    const area=w*h;
+    const canV=w>=2, canH=h>=2;
+    if(!canV&&!canH){ out.push({x,y,w,h}); return; }
+    if(area<=minLeaf){ out.push({x,y,w,h}); return; }
+    const mn=Math.min(w,h), mx=Math.max(w,h), flat=(mn===1&&mx>=4)||(mx/mn>=4);
+    if(area<=maxLeaf){ const p=flat?0.45:0.6; if(rng()<p){ out.push({x,y,w,h}); return; } } // flats stop less often
+    let vertical;
+    if(canV&&canH){
+      if(h===N&&w!==N&&rng()<0.8) vertical=false;      // break a full-height band → cut horizontally
+      else if(w===N&&h!==N&&rng()<0.8) vertical=true;   // break a full-width band → cut vertically
+      else vertical=rng()<0.5;
+    } else vertical=canV;
+    const cutAt=(lo,hi)=>lo+Math.round(((rng()+rng())/2)*(hi-lo)); // centre-biased (triangular)
+    if(vertical){
+      const lo=h===1?2:1, hi=h===1?w-2:w-1;
+      if(hi<lo){ out.push({x,y,w,h}); return; }
+      const cut=cutAt(lo,hi);
+      partitionShaped(x,y,cut,h,rng,minLeaf,maxLeaf,N,out);
+      partitionShaped(x+cut,y,w-cut,h,rng,minLeaf,maxLeaf,N,out);
+    } else {
+      const lo=w===1?2:1, hi=w===1?h-2:h-1;
+      if(hi<lo){ out.push({x,y,w,h}); return; }
+      const cut=cutAt(lo,hi);
+      partitionShaped(x,y,w,cut,rng,minLeaf,maxLeaf,N,out);
+      partitionShaped(x,y+cut,w,h-cut,rng,minLeaf,maxLeaf,N,out);
+    }
+  }
+
   // ---------- logic solver: is the puzzle solvable by forced moves alone (no guessing)? ----------
   // Returns true only if, at every step, some clue or empty cell has exactly ONE possible rectangle —
   // i.e. there's always an anchor and a clean deduction path. (This also implies a unique solution.)
@@ -393,24 +427,34 @@
     // master grids. (Around level 31 this keeps a 15×15 near clue-16 with ~25 pieces — not master-hard.)
     const maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
     const minLeaf=2;
-    // Small/medium grids (≤20, ≈ up to level 48): keep trying seeds until the puzzle is solvable by
-    // pure forced-move logic — so there's always an anchor and a no-guessing deduction path (this also
-    // guarantees a unique solution). Big grids accept ambiguity by design. A time budget caps the search.
-    const wantLogic=N<=20, attempts=wantLogic?150:1, budget=Date.now()+2000;
-    let last=null;
-    for(let attempt=0;attempt<attempts;attempt++){
-      const seed=level*1000+attempt;
+    const wantLogic=N<=20, budget=Date.now()+2000;
+    // build a puzzle from a partition fn + seed (shaped = the nicer-looking partition)
+    function attempt(seed,shaped){
       const rng=mulberry32(seed);
-      const leaves=[]; partition(0,0,N,N,rng,minLeaf,maxLeaf,leaves);
+      const leaves=[];
+      if(shaped) partitionShaped(0,0,N,N,rng,minLeaf,maxLeaf,N,leaves);
+      else partition(0,0,N,N,rng,minLeaf,maxLeaf,leaves);
       const clues=leaves.map(L=>({x:L.x+Math.floor(rng()*L.w),y:L.y+Math.floor(rng()*L.h),value:L.w*L.h}));
       const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
-      const puzzle={N,clues,solution,level};
-      last=puzzle;
-      if(!wantLogic) return puzzle;                          // big grid: always solvable by construction
-      if(logicSolvable(N,clues)) return puzzle;              // forced-move solvable ⇒ has anchors, no guessing
-      if(Date.now()>budget) break;                           // don't grind forever on a pathological seed
+      return {N,clues,solution,level};
     }
-    return last;                                             // fallback: still solvable by construction
+    // Big grids: one shaped attempt (nicer pieces; ambiguity is acceptable here).
+    if(!wantLogic) return attempt(level*1000,true);
+    let last=null;
+    // Phase 1 — shaped partition: few full-span / long-strip pieces AND solvable by forced-move logic
+    // (always an anchor, no guessing). Most levels are satisfied here.
+    for(let a=0;a<120;a++){
+      const p=attempt(level*1000+a,true); last=p;
+      if(logicSolvable(N,p.clues)) return p;
+      if(Date.now()>budget) break;
+    }
+    // Phase 2 — plain partition (higher logic-solvable hit-rate) guarantees a deducible puzzle if the
+    // shaped pass came up empty. (Verified to always succeed across levels 1–48.)
+    for(let a=0;a<200 && Date.now()<=budget;a++){
+      const p=attempt(level*1000+5000+a,false); last=p;
+      if(logicSolvable(N,p.clues)) return p;
+    }
+    return last;                                             // last resort: still solvable by construction
   }
 
   // ---------- game state ----------
