@@ -1,5 +1,5 @@
 /* RECT service worker — fresh HTML when online, full offline fallback */
-const CACHE = 'rect-v9';
+const CACHE = 'rect-v10';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
