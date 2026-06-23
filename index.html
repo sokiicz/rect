@@ -294,17 +294,13 @@
 
   // ---------- seeded RNG ----------
   function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-  const lerp=(a,b,t)=>a+(b-a)*t;
 
-  // ---------- level → grid size + difficulty ----------
+  // ---------- level → grid size ----------
   // Grid grows +1 every 3 levels from 5×5 up to a huge 50×50 master tier (reached ~level 136).
-  // Big grids are navigable via pinch/scroll zoom + pan; puzzles are always solvable by construction
-  // (uniqueness isn't required on big grids — ambiguity is acceptable and keeps generation instant).
+  // Big grids are navigable via pinch/scroll zoom + pan. Piece size (and thus clue values) ramps
+  // SLOWLY with level so the early/mid game stays gentle and deducible — see generatePuzzle().
   const GRID_MIN=5, GRID_MAX=50;
   function gridSizeForLevel(level){ return Math.min(GRID_MAX, GRID_MIN+Math.floor((level-1)/3)); }
-  // Global difficulty 0→1 over the first ~32 levels: scales piece size up so clues get bigger and
-  // more ambiguous fast. Past that, the growing grid keeps carrying the difficulty upward.
-  function difficultyT(level){ return Math.max(0,Math.min(1,(level-1)/32)); }
 
   // ---------- guillotine partition ----------
   // Splits N×N into leaf rectangles. Guards guarantee no area-1 (value-1) leaves: non-strip cuts
@@ -400,14 +396,15 @@
   // ---------- puzzle generation ----------
   function generatePuzzle(level){
     const N=gridSizeForLevel(level);
-    const t=difficultyT(level);
-    // Harder = bigger, more ambiguous pieces. minLeaf=2 ⇒ value-1 clues never appear.
-    // The high end pushes clue values well past 100 on master grids.
-    const maxLeaf=Math.max(4,Math.round(lerp(N*1.3,N*3,t)));
+    // maxLeaf = largest allowed piece area. Grows SLOWLY with level (power curve) so the early/mid
+    // game has many smallish pieces + small anchor clues, then climbs to huge pieces / 100+ clues on
+    // master grids. (Around level 31 this keeps a 15×15 near clue-16 with ~25 pieces — not master-hard.)
+    const maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
     const minLeaf=2;
-    // Uniqueness is cheap to verify on small grids, so prefer few-solution puzzles there; on big
-    // grids skip the solver entirely (ambiguity is fine) so generation stays instant at any size.
-    const wantUnique=N<=16, attempts=wantUnique?32:1;
+    // Small/medium grids (≤20, ≈ up to level 48): keep trying seeds until we find a TRULY unique
+    // (single-solution) puzzle, so it's always deducible without guessing. Big grids accept ambiguity
+    // by design (stays instant). A time budget bounds the search against pathological seeds.
+    const wantUnique=N<=20, attempts=wantUnique?48:1, budget=Date.now()+1500;
     let fallback=null, last=null;
     for(let attempt=0;attempt<attempts;attempt++){
       const seed=level*1000+attempt;
@@ -417,12 +414,11 @@
       const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
       const puzzle={N,clues,solution,level};
       last=puzzle;
-      if(!wantUnique) return puzzle;          // big grid: always solvable by construction — accept now
-      const res=solveCount(N,clues,4,Date.now()+800);
-      if(res.count>=1){
-        if(res.count<=3) return puzzle;       // ideal: few solutions
-        if(!fallback) fallback=puzzle;         // solvable but ambiguous
-      }
+      if(!wantUnique) return puzzle;                         // big grid: always solvable by construction
+      const res=solveCount(N,clues,2,Math.min(budget,Date.now()+300));
+      if(res.count===1 && !res.timedOut) return puzzle;      // single solution ⇒ uniquely deducible (ideal)
+      if(!fallback) fallback=puzzle;                         // keep a solvable backup
+      if(Date.now()>budget) break;                           // don't grind forever on a bad seed
     }
     return fallback||last;
   }
