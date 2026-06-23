@@ -323,7 +323,7 @@
       out.push({x,y,w,h}); return;
     }
     const mn=Math.min(w,h), mx=Math.max(w,h), flat=(mn===1&&mx>=4)||(mx/mn>=4);
-    if(area<=maxLeaf){ const p=flat?opt.flat:0.6; if(rng()<p){ out.push({x,y,w,h}); return; } }
+    if(area<=maxLeaf){ const p=flat?opt.flat:opt.stop; if(rng()<p){ out.push({x,y,w,h}); return; } }
     let vertical;
     if(canV&&canH){
       if(opt.span&&h===N&&w!==N&&rng()<0.8) vertical=false;     // break a full-height band → cut horizontally
@@ -345,10 +345,13 @@
       partition(x,y+cut,w,h-cut,rng,maxLeaf,N,opt,out);
     }
   }
-  // Tried first: nice shapes (few flat strips / full-span) + a handful of 1×1 anchors.
-  const SHAPED={ones:0.20, flat:0.30, center:true,  span:true};
-  // Fallback: higher logic-solvable hit-rate (still seeds some 1×1 anchors) if SHAPED can't produce one.
-  const PLAIN ={ones:0.20, flat:0.60, center:false, span:false};
+  // Mid-game (logic-filtered), tried first: nice shapes + a handful of 1×1 anchors.
+  const SHAPED={ones:0.20, flat:0.30, stop:0.6,  center:true,  span:true};
+  // Mid-game fallback: higher logic-solvable hit-rate (still seeds some 1×1 anchors).
+  const PLAIN ={ones:0.20, flat:0.60, stop:0.6,  center:false, span:false};
+  // Big grids (>20, no logic filter): no 1×1 anchors and a high `stop` so pieces stay chunky — bigger,
+  // more satisfying clue values instead of a sea of 1s/2s/3s. Paired with a doubled maxLeaf below.
+  const BIG   ={ones:0,    flat:0.30, stop:0.75, center:true,  span:true};
 
   // ---------- logic solver: is the puzzle solvable by forced moves alone (no guessing)? ----------
   // Returns true only if, at every step, some clue or empty cell has exactly ONE possible rectangle —
@@ -411,8 +414,11 @@
     // maxLeaf = largest allowed piece area. Grows SLOWLY with level (power curve) so the early/mid
     // game has many smallish pieces + small anchor clues, then climbs to huge pieces / 100+ clues on
     // master grids. (Around level 31 this keeps a 15×15 near clue-16 with ~25 pieces — not master-hard.)
-    const maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
+    let maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
     const wantLogic=N<=20, budget=Date.now()+2000;
+    // Big grids (>20) skip the logic filter, so make them feel epic: double the piece-size cap so
+    // clue values climb high (the BIG preset's high `stop` keeps pieces chunky, not a sea of 1s/2s/3s).
+    if(!wantLogic) maxLeaf=Math.round(maxLeaf*2.0);
     function attempt(seed,opt){
       const rng=mulberry32(seed);
       const leaves=[]; partition(0,0,N,N,rng,maxLeaf,N,opt,leaves);
@@ -420,8 +426,8 @@
       const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
       return {N,clues,solution,level};
     }
-    // Big grids: one shaped attempt (nicer pieces + 1×1 anchors; ambiguity is acceptable here).
-    if(!wantLogic) return attempt(level*1000,SHAPED);
+    // Big grids: one chunky attempt (big pieces, no 1×1 anchors; ambiguity is acceptable here).
+    if(!wantLogic) return attempt(level*1000,BIG);
     let last=null;
     // Phase 1 — shaped partition: nice shapes + a few 1×1 anchors AND solvable by forced-move logic
     // (always an anchor, no guessing). With the anchors this satisfies essentially every level.
