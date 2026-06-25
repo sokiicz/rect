@@ -60,7 +60,22 @@
     border-bottom:1px solid var(--grid-line);
     flex:0 0 auto;
   }
-  .brand{font-weight:800;letter-spacing:.14em;font-size:18px;}
+  .brand{font-weight:800;letter-spacing:.14em;font-size:18px;background:none;border:none;color:var(--text);cursor:pointer;padding:0;font-family:inherit;}
+  .brand:hover{opacity:.65;}
+  /* full-screen landing / home page (not a popup) */
+  #home-screen{
+    position:fixed;inset:0;z-index:30;background:var(--bg);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    padding:32px;text-align:center;
+  }
+  #home-screen.on{display:flex;}
+  .home-brand{font-weight:800;letter-spacing:.18em;font-size:44px;}
+  .home-tag{color:var(--text-muted);font-size:14px;font-weight:500;margin:8px 0 30px;max-width:300px;line-height:1.45;}
+  .home-actions{display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;}
+  .home-actions button{width:100%;padding:15px 0;font-size:16px;}
+  .home-foot{margin-top:26px;color:var(--text-muted);font-size:12px;font-weight:600;letter-spacing:.03em;min-height:14px;}
+  .home-close{position:absolute;top:14px;right:16px;width:36px;height:36px;border-radius:50%;font-size:19px;color:var(--text-muted);background:none;border:none;cursor:pointer;padding:0;}
+  .home-close:hover{color:var(--text);}
   .hdr-right{display:flex;align-items:center;gap:12px;}
   .iconbtn{
     width:28px;height:28px;padding:0;border-radius:50%;
@@ -143,7 +158,7 @@
     display:none;align-items:center;justify-content:center;
     padding:24px;
     opacity:0;transition:opacity .2s ease;
-    z-index:10;
+    z-index:40;
   }
   .modal-bg.on{display:flex;}
   .modal-bg.show{opacity:1;}
@@ -182,6 +197,13 @@
   .stats-table td{padding:5px 0;text-align:right;font-variant-numeric:tabular-nums;}
   .stats-table td:first-child{text-align:left;font-weight:600;}
   .stats-foot{font-size:12px;color:var(--text-muted);margin-top:12px;}
+  #toast{
+    position:fixed;left:50%;bottom:84px;transform:translateX(-50%) translateY(8px);
+    background:var(--accent);color:#fff;font-weight:600;font-size:13px;
+    padding:9px 16px;border-radius:20px;opacity:0;pointer-events:none;
+    transition:opacity .2s,transform .2s;z-index:60;max-width:80%;text-align:center;
+  }
+  #toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
   @media (max-height:520px){
     header{padding:8px 14px 6px;}
     footer{gap:6px;padding:7px 10px;padding-bottom:calc(7px + env(safe-area-inset-bottom));}
@@ -197,7 +219,7 @@
 <body>
 <div id="app">
   <header>
-    <div class="brand">RECT</div>
+    <button class="brand" id="brand" aria-label="Home menu" title="Home">RECT</button>
     <div id="zoomctl">
       <button id="zout" aria-label="Zoom out" title="Zoom out">−</button>
       <button id="zfit" aria-label="Fit grid to screen" title="Fit to screen">⤢</button>
@@ -235,8 +257,10 @@
     <div class="stat-row">
       <div class="stat"><div class="v" id="m-time">00:00</div><div class="l">Time</div></div>
       <div class="stat"><div class="v" id="m-hints">0</div><div class="l">Hints</div></div>
+      <div class="stat" id="m-streak-wrap" style="display:none"><div class="v" id="m-streak">🔥 0</div><div class="l">Streak</div></div>
     </div>
     <div class="modal-actions">
+      <button id="m-share" class="restart" style="display:none">Share</button>
       <button id="m-next" class="primary">Next Level →</button>
     </div>
   </div>
@@ -263,6 +287,21 @@
     <button id="stats-close" class="primary" style="margin-top:16px">Close</button>
   </div>
 </div>
+
+<div id="home-screen">
+  <button class="home-close" id="home-close" aria-label="Resume game" title="Resume">✕</button>
+  <div class="home-brand">RECT</div>
+  <div class="home-tag">A clean logic puzzle — divide the grid into rectangles, one number each.</div>
+  <div class="home-actions">
+    <button id="home-continue" class="primary">Continue</button>
+    <button id="home-daily" class="restart">Daily Challenge</button>
+    <button id="home-stats" class="restart">Statistics</button>
+    <button id="home-help" class="restart">How to play</button>
+  </div>
+  <div class="home-foot" id="home-foot"></div>
+</div>
+
+<div id="toast"></div>
 
 <script>
 "use strict";
@@ -409,45 +448,56 @@
   }
 
   // ---------- puzzle generation ----------
-  function generatePuzzle(level){
-    const N=gridSizeForLevel(level);
-    // maxLeaf = largest allowed piece area. Grows SLOWLY with level (power curve) so the early/mid
-    // game has many smallish pieces + small anchor clues, then climbs to huge pieces / 100+ clues on
-    // master grids. (Around level 31 this keeps a 15×15 near clue-16 with ~25 pieces — not master-hard.)
-    let maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
-    const wantLogic=N<=20, budget=Date.now()+2000;
-    // Big grids (>20) skip the logic filter, so make them feel epic: double the piece-size cap so
-    // clue values climb high (the BIG preset's high `stop` keeps pieces chunky, not a sea of 1s/2s/3s).
-    if(!wantLogic) maxLeaf=Math.round(maxLeaf*2.0);
+  // Core generator, shared by the level ladder and the Daily challenge. Returns {N,clues,solution}.
+  // seedBase namespaces the RNG (level*1000 for levels, a date-hash for Daily); same seedBase ⇒ same puzzle.
+  function buildPuzzle(N, maxLeaf, seedBase, wantLogic){
+    const budget=Date.now()+2000;
     function attempt(seed,opt){
       const rng=mulberry32(seed);
       const leaves=[]; partition(0,0,N,N,rng,maxLeaf,N,opt,leaves);
       const clues=leaves.map(L=>({x:L.x+Math.floor(rng()*L.w),y:L.y+Math.floor(rng()*L.h),value:L.w*L.h}));
       const solution=leaves.map((L,i)=>({x:L.x,y:L.y,w:L.w,h:L.h,clue:i}));
-      return {N,clues,solution,level};
+      return {N,clues,solution};
     }
     // Big grids: one chunky attempt (big pieces, no 1×1 anchors; ambiguity is acceptable here).
-    if(!wantLogic) return attempt(level*1000,BIG);
+    if(!wantLogic) return attempt(seedBase,BIG);
     let last=null;
-    // Phase 1 — shaped partition: nice shapes + a few 1×1 anchors AND solvable by forced-move logic
-    // (always an anchor, no guessing). With the anchors this satisfies essentially every level.
+    // Phase 1 — shaped: nice shapes + a few 1×1 anchors AND forced-move solvable (anchor, no guessing).
     for(let a=0;a<120;a++){
-      const p=attempt(level*1000+a,SHAPED); last=p;
+      const p=attempt(seedBase+a,SHAPED); last=p;
       if(logicSolvable(N,p.clues)) return p;
       if(Date.now()>budget) break;
     }
-    // Phase 2 — plain partition (higher logic-solvable hit-rate) guarantees a deducible puzzle if the
-    // shaped pass somehow came up empty.
+    // Phase 2 — plain (higher logic-solvable hit-rate) guarantees a deducible puzzle if shaped came up empty.
     for(let a=0;a<200 && Date.now()<=budget;a++){
-      const p=attempt(level*1000+5000+a,PLAIN); last=p;
+      const p=attempt(seedBase+5000+a,PLAIN); last=p;
       if(logicSolvable(N,p.clues)) return p;
     }
     return last;                                             // last resort: still solvable by construction
   }
+  function generatePuzzle(level){
+    const N=gridSizeForLevel(level);
+    // maxLeaf grows SLOWLY with level (power curve): gentle early/mid game, huge clues on master grids.
+    let maxLeaf=Math.max(4,Math.round(N*(1.0+Math.pow((level-1)/130,1.8)*1.8)));
+    const wantLogic=N<=20;
+    if(!wantLogic) maxLeaf=Math.round(maxLeaf*2.0);          // big grids: chunkier, more epic pieces
+    return buildPuzzle(N, maxLeaf, level*1000, wantLogic);
+  }
+  // Daily challenge: a fair, logic-solvable puzzle deterministic from the calendar date.
+  const DAILY_SIZES={0:13,1:8,2:9,3:10,4:11,5:12,6:14}; // Sun..Sat — weekday variety, weekends bigger
+  function dateStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function hashStr(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function generateDaily(ds){
+    const day=new Date(ds+'T00:00:00').getDay();
+    const N=DAILY_SIZES[day]||10;
+    const maxLeaf=Math.max(4,Math.round(N*1.35));
+    const seedBase=1000000000+(hashStr('rect-daily-'+ds)%100000000); // own namespace, distinct from levels
+    return buildPuzzle(N, maxLeaf, seedBase, true);
+  }
 
   // ---------- game state ----------
   const state={
-    level:1, N:4, clues:[], solution:[], clueAt:null,
+    level:1, mode:'level', dailyDate:null, N:4, clues:[], solution:[], clueAt:null,
     rects:[], coverOwner:null, coveredCount:0, rectId:0, colorCounter:0,
     pending:null,         // {x,y} mobile tap-start
     down:null,            // {cell,time,anchor,moved} active pointer
@@ -476,6 +526,7 @@
   const elHelp=document.getElementById('help');
   const elStats=document.getElementById('stats');
   const statsBg=document.getElementById('stats-bg');
+  const homeScreen=document.getElementById('home-screen');
 
   let cellSize=24, dpr=1, cssW=0, cssH=0;
   // view = pan/zoom of the grid within the viewport-filling canvas. zoom 1 = whole grid fits.
@@ -490,9 +541,25 @@
   // ---------- persistence ----------
   function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
   function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
-  // persistent per-level clock — stores accumulated active ms (not wall-clock); survives reload + start-over
-  function readTimer(){ try{ const o=JSON.parse(lsGet('rect.timer')); if(o&&typeof o.level==='number'&&typeof o.elapsed==='number') return o; }catch(e){} return null; }
-  function writeTimer(level,elapsed){ lsSet('rect.timer',JSON.stringify({level,elapsed})); }
+  // board identity — distinguishes the level ladder from the Daily challenge (own save slots each)
+  function boardId(){ return state.mode==='daily' ? ('daily:'+state.dailyDate) : ('lvl:'+state.level); }
+  function slot(){ return state.mode==='daily' ? 'daily' : 'level'; }
+  // per-board clock: accumulated *active* ms (not wall-clock); survives reload / start-over
+  function readTimer(){ try{ const o=JSON.parse(lsGet('rect.timer.'+slot())); if(o&&o.id===boardId()&&typeof o.elapsed==='number') return Math.max(0,o.elapsed); }catch(e){} return 0; }
+  function writeTimer(elapsed){ lsSet('rect.timer.'+slot(),JSON.stringify({id:boardId(),elapsed})); }
+  // per-board in-progress rectangles — a reload (or hopping to Daily and back) never loses your work
+  let saveTimer=0;
+  function saveProgress(){ lsSet('rect.progress.'+slot(),JSON.stringify({id:boardId(),rects:state.rects.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}))})); }
+  function scheduleSave(){ if(saveTimer) return; saveTimer=setTimeout(()=>{ saveTimer=0; if(!state.solved) saveProgress(); },350); }
+  function clearProgress(){ if(saveTimer){ clearTimeout(saveTimer); saveTimer=0; } try{ localStorage.removeItem('rect.progress.'+slot()); }catch(e){} }
+  function restoreProgress(){
+    let o; try{ o=JSON.parse(lsGet('rect.progress.'+slot())); }catch(e){ return; }
+    if(!o||o.id!==boardId()||!Array.isArray(o.rects)||!o.rects.length) return;
+    // drop the auto-placed anchors, then lay down exactly what was saved
+    state.rects=[]; state.coverOwner=new Int32Array(state.N*state.N); state.coveredCount=0; state.rectId=0; state.colorCounter=0;
+    for(const r of o.rects){ if(r&&Number.isInteger(r.x)) addRect({x:r.x,y:r.y,w:r.w,h:r.h}); }
+    for(let i=0;i<state.clues.length;i++){ const owner=rectAtCell(state.clues[i]); state.validFlags[i]=!!(owner&&rectValid(owner)); }
+  }
   function storeLevel(level){
     try{ history.replaceState(null,'','#level='+level); }catch(e){}
     lsSet('rect.level',String(level));
@@ -560,7 +627,7 @@
   function startTimer(){ if(state.timerRunning||state.solved||document.hidden) return; state.timerRunning=true; state.timeStart=Date.now()-state.elapsed; tick(++tickGen); }
   function pauseTimer(){ if(!state.timerRunning) return; state.elapsed=Date.now()-state.timeStart; state.timerRunning=false; persistTimer(); }
   function stopTimer(){ pauseTimer(); }
-  function persistTimer(){ writeTimer(state.level,state.elapsed); }
+  function persistTimer(){ writeTimer(state.elapsed); }
   function fmt(ms){ const s=Math.floor(ms/1000); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
   function tick(gen){
     if(!state.timerRunning||gen!==tickGen) return; // only the latest loop survives
@@ -731,7 +798,7 @@
 
   // ---------- UI sync ----------
   function syncUI(){
-    elLvl.textContent='Level '+state.level+' · '+state.N+'×'+state.N;
+    elLvl.textContent = state.mode==='daily' ? ('Daily · '+state.dailyDate) : ('Level '+state.level+' · '+state.N+'×'+state.N);
     elProg.textContent=validCount()+' / '+state.clues.length+' ✓';
     const left=state.maxHints-state.hintsUsed;
     elHint.textContent='Hint ★'+left;
@@ -756,6 +823,7 @@
     state.solved=true;
     stopTimer();
     recordStat();                 // log this solve (time / grid size / hints) for the stats screen
+    clearProgress();              // a finished board shouldn't restore as "in progress"
     clearPending(); state.preview=null;
     buzz([0,45,55,45]);
     syncUI();
@@ -768,19 +836,72 @@
     })();
   }
   function advance(){ clearAdvance(); hideModal(); loadLevel(state.level+1); }
+  function returnToLevels(){ clearAdvance(); hideModal(); loadLevel(startLevel()); }
   function clearAdvance(){ if(advanceTimer){ clearTimeout(advanceTimer); advanceTimer=0; } }
   function showModal(){
     const stars=state.hintsUsed===0?3:(state.hintsUsed===1?2:1);
-    document.getElementById('m-sub').textContent='Level '+state.level+' · '+state.N+'×'+state.N;
+    const daily=state.mode==='daily';
+    document.getElementById('m-title').textContent=daily?'Daily done!':'Solved';
+    document.getElementById('m-sub').textContent=daily?('Daily · '+state.dailyDate):('Level '+state.level+' · '+state.N+'×'+state.N);
     document.getElementById('m-time').textContent=fmt(state.elapsed);
     document.getElementById('m-hints').textContent=String(state.hintsUsed);
     document.getElementById('m-stars').innerHTML=
       '★★★'.split('').map((s,i)=>i<stars?'★':'<span class="off">★</span>').join('');
+    // Daily: record the result (updates streak), reveal streak + Share
+    let streak=0;
+    if(daily){ streak=recordDaily(state.dailyDate,state.elapsed,state.hintsUsed,stars).streak; }
+    document.getElementById('m-streak-wrap').style.display=daily?'':'none';
+    document.getElementById('m-streak').textContent='🔥 '+streak;
+    document.getElementById('m-share').style.display=daily?'':'none';
+    document.getElementById('m-next').textContent=daily?'Back to Levels':'Next Level →';
     modalBg.classList.add('on');
     requestAnimationFrame(()=>modalBg.classList.add('show'));
     // no auto-advance: the summary stays up until the player chooses to continue
   }
   function hideModal(){ modalBg.classList.remove('show'); setTimeout(()=>modalBg.classList.remove('on'),200); }
+  // ---------- home screen (full-page landing, reached via the logo) ----------
+  let homeOpen=false;
+  function showHome(){
+    pauseTimer();                                   // opening the menu pauses the current board's clock
+    const lvl=parseInt(lsGet('rect.level')||'1',10)||1;
+    document.getElementById('home-continue').textContent='Continue · Level '+lvl;
+    const d=readDaily(), doneToday=!!(d.history&&d.history[dateStr()]);
+    document.getElementById('home-daily').textContent=doneToday?'Daily Challenge  ✓':'Daily Challenge';
+    const solved=readStats().length, bits=[];
+    if(d.streak) bits.push('🔥 '+d.streak+'-day streak');
+    if(solved) bits.push(solved+(solved===1?' puzzle solved':' puzzles solved'));
+    document.getElementById('home-foot').textContent=bits.join('   ·   ');
+    document.getElementById('home-close').style.display=state.clueAt?'':'none'; // only offer Resume if a board is loaded
+    homeOpen=true; homeScreen.classList.add('on');
+  }
+  function closeHome(){ homeOpen=false; homeScreen.classList.remove('on'); }
+  // ---------- daily streak + share (all local, no backend) ----------
+  function readDaily(){ try{ const o=JSON.parse(lsGet('rect.daily')); if(o&&typeof o==='object'&&o.history) return o; }catch(e){} return {lastDate:null,streak:0,bestStreak:0,history:{}}; }
+  function prevDate(ds){ const d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()-1); return dateStr(d); }
+  function recordDaily(ds,ms,hints,stars){
+    const d=readDaily();
+    if(d.history[ds]){ const h=d.history[ds]; if(ms<h.ms){ h.ms=ms; h.hints=hints; h.stars=stars; } } // replay → keep best, no streak change
+    else {
+      d.streak = (d.lastDate===prevDate(ds)) ? (d.streak||0)+1 : 1;  // consecutive day extends; a gap resets to 1
+      d.lastDate=ds; d.history[ds]={ms,hints,stars};
+      d.bestStreak=Math.max(d.bestStreak||0,d.streak);
+    }
+    lsSet('rect.daily',JSON.stringify(d));
+    return d;
+  }
+  function shareText(){
+    const d=readDaily(), h=d.history[state.dailyDate]||{ms:state.elapsed,hints:0,stars:0};
+    const stars='★'.repeat(h.stars)+'☆'.repeat(3-h.stars);
+    return 'RECT Daily · '+state.dailyDate+' · '+state.N+'×'+state.N+' · ⏱ '+fmt(h.ms)+' · '+stars+' · 🔥'+(d.streak||1)+'\nhttps://sokiicz.github.io/rect/';
+  }
+  function doShare(){
+    const text=shareText();
+    if(navigator.share){ navigator.share({text}).catch(()=>{}); }
+    else if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(()=>toast('Copied to clipboard')).catch(()=>toast('Copy failed')); }
+    else toast('Sharing not supported');
+  }
+  let toastT=0;
+  function toast(msg){ const t=document.getElementById('toast'); if(!t) return; t.textContent=msg; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),1700); }
 
   // ---------- hint ----------
   function useHint(){
@@ -973,7 +1094,7 @@
   document.getElementById('zout').addEventListener('click',()=>setZoom(view.zoom/1.4,cssW/2,cssH/2));
   document.getElementById('zfit').addEventListener('click',fitView);
 
-  function afterChange(){ detectNewlyValid(); syncUI(); draw(); checkSolved(); }
+  function afterChange(){ detectNewlyValid(); syncUI(); draw(); checkSolved(); if(state.solved){ if(saveTimer){ clearTimeout(saveTimer); saveTimer=0; } } else scheduleSave(); }
 
   // ---------- buttons ----------
   elUndo.addEventListener('click',()=>{
@@ -996,8 +1117,15 @@
     afterChange();
   });
   elErase.addEventListener('click',()=>{ if(state.solved) return; state.eraseMode=!state.eraseMode; clearPending(); afterChange(); });
-  elNext.addEventListener('click',()=>{ if(state.solved) advance(); }); // only works once finished
-  document.getElementById('m-next').addEventListener('click',advance);
+  elNext.addEventListener('click',()=>{ if(!state.solved) return; state.mode==='daily'?returnToLevels():advance(); }); // only works once finished
+  document.getElementById('m-next').addEventListener('click',()=>{ state.mode==='daily'?returnToLevels():advance(); });
+  document.getElementById('m-share').addEventListener('click',doShare);
+  document.getElementById('brand').addEventListener('click',showHome);
+  document.getElementById('home-close').addEventListener('click',()=>{ closeHome(); startTimer(); }); // resume current board
+  document.getElementById('home-continue').addEventListener('click',()=>{ closeHome(); loadLevel(startLevel()); });
+  document.getElementById('home-daily').addEventListener('click',()=>{ closeHome(); loadDaily(); });
+  document.getElementById('home-stats').addEventListener('click',openStats);  // stats/help layer ON TOP of home
+  document.getElementById('home-help').addEventListener('click',openHelp);
 
   // help / onboarding
   function openHelp(){ helpOpen=true; helpBg.classList.add('on'); requestAnimationFrame(()=>helpBg.classList.add('show')); }
@@ -1046,6 +1174,7 @@
   // keyboard
   window.addEventListener('keydown',e=>{
     if(e.key==='Escape'){
+      if(homeOpen){ if(state.clueAt){ closeHome(); startTimer(); } return; }
       if(statsOpen){ closeStats(); return; }
       if(helpOpen){ closeHelp(); return; }
       if(state.pending){ state.pending=null; afterChange(); }
@@ -1075,48 +1204,55 @@
   }
 
   // ---------- load level ----------
-  function loadLevel(level){
-    state.level=level;
+  // shared reset for both level + daily loads
+  function resetForLoad(){
     state.solved=false; state.solveAnim=0;
     state.eraseMode=false; state.preview=null; state.down=null;
     state.hintsUsed=0; state.timerRunning=false;
     state.pulses={}; state.validFlags=[];
     clearPending(); clearAdvance();
-    view.zoom=1; pointers.clear(); gesture=null; panning=null; suppressTapUntilEmpty=false; // fresh fit per level
+    view.zoom=1; pointers.clear(); gesture=null; panning=null; suppressTapUntilEmpty=false; // fresh fit per board
     if(state.pulseRAF){ cancelAnimationFrame(state.pulseRAF); state.pulseRAF=0; }
     elTimer.textContent='00:00';
-    storeLevel(level);
     elGen.classList.add('on');
+  }
+  // install a generated puzzle into the board + restore any saved progress/clock (shared by level + daily)
+  function setupBoard(puzzle, fallbackN){
+    if(!puzzle||!puzzle.clues||!puzzle.clues.length){
+      // guaranteed-solvable fallback so a bad seed can never white-screen
+      puzzle={N:fallbackN,clues:[{x:0,y:0,value:fallbackN*fallbackN}],solution:[{x:0,y:0,w:fallbackN,h:fallbackN,clue:0}]};
+    }
+    state.N=puzzle.N; state.clues=puzzle.clues; state.solution=puzzle.solution;
+    state.clueAt=new Int16Array(state.N*state.N).fill(-1);
+    state.clues.forEach((c,i)=>{ state.clueAt[c.y*state.N+c.x]=i; });
+    state.validFlags=new Array(state.clues.length).fill(false);
+    state.rects=[]; state.coverOwner=new Int32Array(state.N*state.N);
+    state.coveredCount=0; state.rectId=0; state.colorCounter=0;
+    preplaceOnes();
+    restoreProgress();                       // resume any saved in-progress work for this board
+    elGen.classList.remove('on');
+    resize(); syncUI();
+    state.elapsed=readTimer();                // resume this board's own accumulated active time; else 0
+    lastPersist=state.elapsed; writeTimer(state.elapsed);
+    elTimer.textContent=fmt(state.elapsed);
+    startTimer();
+  }
+  function loadLevel(level){
+    if(saveTimer){ clearTimeout(saveTimer); saveTimer=0; saveProgress(); } // persist the outgoing board first
+    state.mode='level'; state.level=level;
+    resetForLoad(); storeLevel(level);
     const gs=gridSizeForLevel(level);
     elLvl.textContent='Level '+level+' · '+gs+'×'+gs;
     // defer so the "Generating…" overlay paints before the synchronous solve
-    setTimeout(()=>{
-      let puzzle;
-      try{ puzzle=generatePuzzle(level); }catch(err){ puzzle=null; }
-      if(!puzzle||!puzzle.clues||!puzzle.clues.length){
-        // guaranteed-solvable fallback so a bad seed can never white-screen
-        puzzle={N:gs,clues:[{x:0,y:0,value:gs*gs}],solution:[{x:0,y:0,w:gs,h:gs,clue:0}],level};
-      }
-      state.N=puzzle.N;
-      state.clues=puzzle.clues;
-      state.solution=puzzle.solution;
-      state.clueAt=new Int16Array(state.N*state.N).fill(-1);
-      state.clues.forEach((c,i)=>{ state.clueAt[c.y*state.N+c.x]=i; });
-      state.validFlags=new Array(state.clues.length).fill(false);
-      state.rects=[]; state.coverOwner=new Int32Array(state.N*state.N);
-      state.coveredCount=0; state.rectId=0; state.colorCounter=0;
-      preplaceOnes();
-      elGen.classList.remove('on');
-      resize();
-      syncUI();
-      // resume this level's accumulated active time if saved (survives reload / start-over); else fresh
-      const saved=readTimer();
-      state.elapsed=(saved&&saved.level===level)?Math.max(0,saved.elapsed):0;
-      lastPersist=state.elapsed;
-      writeTimer(level,state.elapsed);
-      elTimer.textContent=fmt(state.elapsed);
-      startTimer();
-    },24);
+    setTimeout(()=>{ let p; try{ p=generatePuzzle(level); }catch(e){ p=null; } setupBoard(p,gs); },24);
+  }
+  function loadDaily(){
+    if(saveTimer){ clearTimeout(saveTimer); saveTimer=0; saveProgress(); } // persist the outgoing board first
+    state.mode='daily'; state.dailyDate=dateStr();
+    resetForLoad();
+    const N=DAILY_SIZES[new Date(state.dailyDate+'T00:00:00').getDay()]||10;
+    elLvl.textContent='Daily · '+state.dailyDate;
+    setTimeout(()=>{ let p; try{ p=generateDaily(state.dailyDate); }catch(e){ p=null; } setupBoard(p,N); },24);
   }
 
   // ---------- boot ----------
@@ -1129,8 +1265,7 @@
   window.addEventListener('focus',startTimer);
   window.addEventListener('pagehide',pauseTimer);
   if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(()=>draw()); }
-  loadLevel(startLevel());
-  if(!lsGet('rect.seen')) setTimeout(openHelp,260); // first-run onboarding
+  showHome(); // land on the home page; the board loads when the player taps Continue / Daily
 })();
 
 // PWA: register service worker for offline + installability
